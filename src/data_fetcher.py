@@ -1,14 +1,16 @@
 """
-JcampFX — MT5 Data Fetcher (Phase 1, PRD §7.1)
+JcampFX — MT5 Data Fetcher (Phase 1+2, PRD §7.1)
 
-Downloads tick data and M15 OHLC candles from MetaTrader 5 for all pairs
-in the pair universe, stores as Parquet files for Range Bar conversion.
+Downloads tick data, M15 OHLC candles, 1H and 4H OHLC candles from MetaTrader 5.
+Tick + M15 cover the 5 active pairs (Phase 1).
+1H + 4H cover the 5 active pairs + 4 CSM cross-pairs (Phase 2 DCRD engine).
 
 Supports incremental downloads: only fetches missing date ranges.
 
 Usage:
-    python -m src.data_fetcher              # Fetch all pairs
+    python -m src.data_fetcher              # Fetch all pairs (ticks + all OHLC)
     python -m src.data_fetcher --pair EURUSD --years 2
+    python -m src.data_fetcher --dcrd-only  # Only 4H/1H for DCRD
 """
 
 from __future__ import annotations
@@ -31,11 +33,16 @@ except ImportError:
     MT5_AVAILABLE = False
 
 from src.config import (
+    CSM_PAIRS,
     DATA_OHLC_DIR,
+    DATA_OHLC_1H_DIR,
+    DATA_OHLC_4H_DIR,
     DATA_TICKS_DIR,
     M15_TIMEFRAME,
     PAIRS,
     TICK_DATA_YEARS,
+    TIMEFRAME_1H,
+    TIMEFRAME_4H,
     mt5_symbol,
 )
 
@@ -49,7 +56,12 @@ def _ticks_path(pair: str) -> Path:
     return PROJECT_ROOT / DATA_TICKS_DIR / f"{pair}_ticks.parquet"
 
 
-def _ohlc_path(pair: str) -> Path:
+def _ohlc_path(pair: str, timeframe: str = M15_TIMEFRAME) -> Path:
+    """Return Parquet path for OHLC data at a given timeframe."""
+    if timeframe == TIMEFRAME_4H:
+        return PROJECT_ROOT / DATA_OHLC_4H_DIR / f"{pair}_H4.parquet"
+    if timeframe == TIMEFRAME_1H:
+        return PROJECT_ROOT / DATA_OHLC_1H_DIR / f"{pair}_H1.parquet"
     return PROJECT_ROOT / DATA_OHLC_DIR / f"{pair}_M15.parquet"
 
 
@@ -193,7 +205,7 @@ def fetch_ohlc(
     Download OHLC candles from MT5 for `pair` on `timeframe`.
     Stores as Parquet with columns: time, open, high, low, close, tick_volume, spread, real_volume.
     """
-    out_path = _ohlc_path(pair)
+    out_path = _ohlc_path(pair, timeframe)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     now_utc = datetime.now(timezone.utc)
@@ -240,19 +252,59 @@ def fetch_ohlc(
 
 
 # ---------------------------------------------------------------------------
+# Convenience wrappers for 4H and 1H OHLC
+# ---------------------------------------------------------------------------
+
+def fetch_ohlc_4h(pair: str, years: int = TICK_DATA_YEARS, force: bool = False) -> Path:
+    """Download 4H OHLC for `pair`. Used by DCRD Layer 1 (Structural Score)."""
+    return fetch_ohlc(pair, timeframe=TIMEFRAME_4H, years=years, force=force)
+
+
+def fetch_ohlc_1h(pair: str, years: int = TICK_DATA_YEARS, force: bool = False) -> Path:
+    """Download 1H OHLC for `pair`. Used by DCRD Layer 2 (Dynamic Modifier)."""
+    return fetch_ohlc(pair, timeframe=TIMEFRAME_1H, years=years, force=force)
+
+
+# ---------------------------------------------------------------------------
 # Bulk fetch (all pairs)
 # ---------------------------------------------------------------------------
 
-def fetch_all(years: int = TICK_DATA_YEARS, force: bool = False) -> None:
-    """Fetch tick data and M15 OHLC for every pair in the universe."""
+def fetch_all(
+    years: int = TICK_DATA_YEARS,
+    force: bool = False,
+    include_dcrd: bool = True,
+) -> None:
+    """
+    Fetch all data required for the system.
+
+    - Tick data + M15 OHLC for the 5 active pairs (Phase 1)
+    - 4H + 1H OHLC for all 5 active pairs + 4 CSM cross-pairs (Phase 2 DCRD)
+
+    Parameters
+    ----------
+    include_dcrd : bool
+        When True (default), also downloads 4H/1H OHLC for DCRD scoring.
+    """
     if not connect_mt5():
         sys.exit(1)
 
     try:
+        # Active pairs: ticks + M15 + (optionally) 4H/1H
         for pair in PAIRS:
             log.info("=== %s ===", pair)
             fetch_ticks(pair, years=years, force=force)
             fetch_ohlc(pair, years=years, force=force)
+            if include_dcrd:
+                fetch_ohlc_4h(pair, years=years, force=force)
+                fetch_ohlc_1h(pair, years=years, force=force)
+
+        # CSM cross-pairs: only 4H/1H needed (no ticks or M15)
+        if include_dcrd:
+            csm_only = [p for p in CSM_PAIRS if p not in PAIRS]
+            for pair in csm_only:
+                log.info("=== %s (CSM) ===", pair)
+                fetch_ohlc_4h(pair, years=years, force=force)
+                fetch_ohlc_1h(pair, years=years, force=force)
     finally:
         disconnect_mt5()
 
@@ -274,15 +326,26 @@ def load_ticks(pair: str) -> pd.DataFrame:
 
 
 def load_ohlc(pair: str, timeframe: str = M15_TIMEFRAME) -> pd.DataFrame:
-    """Load stored M15 OHLC Parquet for `pair`. Raises FileNotFoundError if missing."""
-    path = _ohlc_path(pair)
+    """Load stored OHLC Parquet for `pair` at `timeframe`. Raises FileNotFoundError if missing."""
+    path = _ohlc_path(pair, timeframe)
     if not path.exists():
         raise FileNotFoundError(
-            f"No OHLC data for {pair}. Run: python -m src.data_fetcher --pair {pair}"
+            f"No {timeframe} OHLC data for {pair}. "
+            f"Run: python -m src.data_fetcher --pair {pair}"
         )
     df = pd.read_parquet(path)
     df["time"] = pd.to_datetime(df["time"], utc=True)
     return df.sort_values("time").reset_index(drop=True)
+
+
+def load_ohlc_4h(pair: str) -> pd.DataFrame:
+    """Load stored 4H OHLC Parquet for `pair`. Required for DCRD Layer 1."""
+    return load_ohlc(pair, timeframe=TIMEFRAME_4H)
+
+
+def load_ohlc_1h(pair: str) -> pd.DataFrame:
+    """Load stored 1H OHLC Parquet for `pair`. Required for DCRD Layer 2."""
+    return load_ohlc(pair, timeframe=TIMEFRAME_1H)
 
 
 # ---------------------------------------------------------------------------
@@ -291,11 +354,13 @@ def load_ohlc(pair: str, timeframe: str = M15_TIMEFRAME) -> pd.DataFrame:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="JcampFX MT5 data fetcher")
-    p.add_argument("--pair", nargs="+", default=PAIRS, help="Pair(s) to fetch (default: all)")
+    p.add_argument("--pair", nargs="+", default=None, help="Pair(s) to fetch (default: all active)")
     p.add_argument("--years", type=int, default=TICK_DATA_YEARS, help="Years of history")
     p.add_argument("--force", action="store_true", help="Force full re-download")
-    p.add_argument("--ticks-only", action="store_true", help="Skip OHLC download")
-    p.add_argument("--ohlc-only", action="store_true", help="Skip tick download")
+    p.add_argument("--ticks-only", action="store_true", help="Tick data only (skip OHLC)")
+    p.add_argument("--ohlc-only", action="store_true", help="OHLC only (skip ticks)")
+    p.add_argument("--dcrd-only", action="store_true", help="Only 4H/1H OHLC for DCRD (+ CSM pairs)")
+    p.add_argument("--no-dcrd", action="store_true", help="Skip 4H/1H OHLC download")
     p.add_argument("-v", "--verbose", action="store_true")
     return p
 
@@ -307,15 +372,34 @@ if __name__ == "__main__":
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
+    if args.dcrd_only:
+        # Download only 4H/1H OHLC for all DCRD pairs (active + CSM cross-pairs)
+        if not connect_mt5():
+            sys.exit(1)
+        try:
+            for pair in CSM_PAIRS:
+                log.info("=== %s (DCRD) ===", pair)
+                fetch_ohlc_4h(pair, years=args.years, force=args.force)
+                fetch_ohlc_1h(pair, years=args.years, force=args.force)
+        finally:
+            disconnect_mt5()
+        sys.exit(0)
+
+    pairs = args.pair or PAIRS
+    include_dcrd = not args.no_dcrd
+
     if not connect_mt5():
         sys.exit(1)
 
     try:
-        for pair in args.pair:
+        for pair in pairs:
             log.info("=== %s ===", pair)
             if not args.ohlc_only:
                 fetch_ticks(pair, years=args.years, force=args.force)
             if not args.ticks_only:
                 fetch_ohlc(pair, years=args.years, force=args.force)
+                if include_dcrd:
+                    fetch_ohlc_4h(pair, years=args.years, force=args.force)
+                    fetch_ohlc_1h(pair, years=args.years, force=args.force)
     finally:
         disconnect_mt5()

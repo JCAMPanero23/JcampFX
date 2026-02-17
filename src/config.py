@@ -25,6 +25,13 @@ PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "AUDJPY", "USDCHF"]
 GOLD_PAIR = "XAUUSD"
 GOLD_UNLOCK_EQUITY = 2000.0
 
+# CSM 9-pair grid for Currency Strength Meter (PRD §3.2 — VD.7)
+# Active 5 + 4 cross pairs covering EUR, GBP, USD, JPY, AUD, CHF
+CSM_PAIRS = [
+    "EURUSD", "GBPUSD", "USDJPY", "AUDJPY", "USDCHF",
+    "EURJPY", "GBPJPY", "EURGBP", "AUDUSD",
+]
+
 # Pip sizes (1 pip in price terms)
 # JPY pairs: 1 pip = 0.01; all others: 1 pip = 0.0001
 PIP_SIZE: dict[str, float] = {
@@ -34,6 +41,11 @@ PIP_SIZE: dict[str, float] = {
     "AUDJPY": 0.01,
     "USDCHF": 0.0001,
     "XAUUSD": 0.01,  # Gold: $0.01 per pip equivalent (1¢/oz)
+    # CSM cross pairs
+    "EURJPY": 0.01,
+    "GBPJPY": 0.01,
+    "EURGBP": 0.0001,
+    "AUDUSD": 0.0001,
 }
 
 # Range Bar sizes in pips (recommended values from PRD §3.4)
@@ -50,6 +62,8 @@ RANGE_BAR_PIPS: dict[str, int] = {
 # MT5 data parameters
 TICK_DATA_YEARS = 2          # Minimum history required (PRD §7.1)
 M15_TIMEFRAME = "M15"        # Comparison overlay timeframe
+TIMEFRAME_1H = "H1"          # 1H OHLC for DCRD Layer 2 (dynamic modifier)
+TIMEFRAME_4H = "H4"          # 4H OHLC for DCRD Layer 1 (structural score)
 
 # Broker cost model (PRD §1.2)
 COMMISSION_PER_LOT_RT = 7.0  # USD round-trip per standard lot
@@ -111,4 +125,6 @@ PARTIAL_EXIT_R = 1.5  # Stage 1 fires at 1.5R
 # Data directories (relative to project root — callers use pathlib)
 DATA_TICKS_DIR = "data/ticks"
 DATA_RANGE_BARS_DIR = "data/range_bars"
-DATA_OHLC_DIR = "data/ohlc"
+DATA_OHLC_DIR = "data/ohlc"        # M15 (Phase 1 overlay)
+DATA_OHLC_1H_DIR = "data/ohlc_1h"  # 1H for DCRD Layer 2
+DATA_OHLC_4H_DIR = "data/ohlc_4h"  # 4H for DCRD Layer 1

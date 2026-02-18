@@ -128,3 +128,10 @@ DATA_RANGE_BARS_DIR = "data/range_bars"
 DATA_OHLC_DIR = "data/ohlc"        # M15 (Phase 1 overlay)
 DATA_OHLC_1H_DIR = "data/ohlc_1h"  # 1H for DCRD Layer 2
 DATA_OHLC_4H_DIR = "data/ohlc_4h"  # 4H for DCRD Layer 1
+DATA_NEWS_JSON = "data/news_events.json"
+BACKTEST_RESULTS_DIR = "data/backtest_results"
+
+# Walk-forward backtest structure (PRD §9.1)
+WALK_FORWARD_TRAIN_MONTHS = 4   # In-sample period per cycle
+WALK_FORWARD_TEST_MONTHS = 2    # Out-of-sample gate period per cycle
+WALK_FORWARD_CYCLES = 4         # Minimum cycles required

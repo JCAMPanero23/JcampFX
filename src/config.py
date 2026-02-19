@@ -74,6 +74,7 @@ MIN_RISK_PCT = 0.008          # 0.8% — skip trade below this (PRD §6.1)
 BASE_RISK_PCT = 0.01          # 1.0% base risk
 MAX_RISK_PCT = 0.03           # 3.0% cap
 MIN_LOT = 0.01                # MT5 minimum lot size
+MAX_LOT = 5.0                 # Hard safety cap — prevents runaway compounding
 
 # Portfolio limits (PRD §1.2)
 MAX_CONCURRENT_POSITIONS = 2

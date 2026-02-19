@@ -35,6 +35,7 @@ import math
 
 from src.config import (
     BASE_RISK_PCT,
+    MAX_LOT,
     MAX_RISK_PCT,
     MIN_LOT,
     MIN_RISK_PCT,
@@ -163,7 +164,7 @@ def calculate_lot_size(
 
     # Round DOWN to 2 decimal places (never exceed intended risk)
     lots = math.floor(raw_lots * 100) / 100
-    return max(MIN_LOT, lots)
+    return max(MIN_LOT, min(MAX_LOT, lots))
 
 
 def _default_pip_value(pair: str) -> float:

@@ -160,6 +160,7 @@ class BacktestEngine:
 
         bar_count = 0
         rb_window_cache: dict[str, list] = {p: [] for p in self.pairs}
+        last_close: dict[str, float] = {}  # last known close price per pair
 
         while heap:
             end_time, pair, bar_idx, bar = heapq.heappop(heap)
@@ -169,6 +170,9 @@ class BacktestEngine:
             rb_window_cache[pair].append(bar)
             if len(rb_window_cache[pair]) > 300:
                 rb_window_cache[pair] = rb_window_cache[pair][-300:]
+
+            # Track last known close price for this pair
+            last_close[pair] = float(bar["close"])
 
             # Daily reset
             account.reset_daily_if_needed(end_time)
@@ -181,14 +185,16 @@ class BacktestEngine:
             # 2. Daily 2R cap — if hit, force-close remaining positions
             if account.is_daily_cap_hit():
                 for trade in list(account.open_trades):
-                    close_px = float(bar["close"])
+                    # Use the trade's own pair price, not the current bar's pair price
+                    close_px = last_close.get(trade.pair, trade.entry_price)
                     account.close_trade(trade, close_px, end_time, "2R_CAP")
                 continue  # No new entries on same bar as cap hit
 
             # 3. Weekend close (Friday ≥ 21:40 UTC = 5 min before 22:00 close)
             if _is_near_friday_close(end_time):
                 for trade in list(account.open_trades):
-                    close_px = float(bar["close"])
+                    # Use the trade's own pair price, not the current bar's pair price
+                    close_px = last_close.get(trade.pair, trade.entry_price)
                     account.close_trade(trade, close_px, end_time, "WEEKEND_CLOSE")
                 continue
 
@@ -225,10 +231,9 @@ class BacktestEngine:
             if signal is not None and not signal.is_blocked and signal.lot_size > 0:
                 self._open_trade(signal, bar, account, end_time)
 
-        # End of replay: close any remaining open trades
+        # End of replay: close any remaining open trades at their own pair's last price
         for trade in list(account.open_trades):
-            rb = self._rb_cache.get(trade.pair)
-            last_price = float(rb["close"].iloc[-1]) if rb is not None and not rb.empty else trade.entry_price
+            last_price = last_close.get(trade.pair, trade.entry_price)
             account.close_trade(trade, last_price, end, "WEEKEND_CLOSE")
 
         log.info(

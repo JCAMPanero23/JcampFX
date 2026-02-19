@@ -61,6 +61,14 @@ class BacktestTrade:
     # ATR snapshot at partial exit (used for chandelier initialisation)
     atr14_at_partial: float = 0.0
 
+    # Debug metadata (TrendRider only -- None for other strategies)
+    adx_at_entry: Optional[float] = None
+    adx_slope_rising: Optional[bool] = None
+    staircase_depth: Optional[int] = None
+    pullback_bar_idx: Optional[int] = None     # absolute index in Range Bar cache
+    pullback_depth_pips: Optional[float] = None
+    entry_bar_idx: Optional[int] = None        # absolute index in Range Bar cache
+
     def is_open(self) -> bool:
         return self.phase in ("open", "runner")
 
@@ -90,4 +98,10 @@ class BacktestTrade:
             "r_multiple_total": self.r_multiple_total,
             "pnl_usd": self.pnl_usd,
             "commission_usd": self.commission_usd,
+            "adx_at_entry": self.adx_at_entry,
+            "adx_slope_rising": self.adx_slope_rising,
+            "staircase_depth": self.staircase_depth,
+            "pullback_bar_idx": self.pullback_bar_idx,
+            "pullback_depth_pips": self.pullback_depth_pips,
+            "entry_bar_idx": self.entry_bar_idx,
         }

@@ -71,6 +71,14 @@ class Signal:
     # v2.2: session tag (Tokyo/London/NY/Overlap/Off-Hours) set by BrainCore (PRD §6.3)
     session_tag: str = ""
 
+    # TrendRider debug metadata — populated by TrendRider.analyze(), None for other strategies
+    adx_at_entry: Optional[float] = None
+    adx_slope_rising: Optional[bool] = None
+    staircase_depth: Optional[int] = None
+    pullback_bar_idx: Optional[int] = None     # absolute index in Range Bar DataFrame
+    pullback_depth_pips: Optional[float] = None
+    entry_bar_idx: Optional[int] = None        # absolute index in Range Bar DataFrame
+
     # --- Derived convenience properties ---
     @property
     def risk_pips(self) -> float:

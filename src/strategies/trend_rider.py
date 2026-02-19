@@ -102,36 +102,39 @@ def _detect_trend_direction(ohlc_1h: pd.DataFrame) -> str:
     return ""
 
 
-def _detect_3bar_staircase(range_bars: pd.DataFrame, direction: str, lookback: int = 15) -> bool:
+def _detect_3bar_staircase(range_bars: pd.DataFrame, direction: str, lookback: int = 15) -> int:
     """
     Detect a 3-bar staircase pattern in Range Bars.
-    BUY staircase: 3+ consecutive bars making HH/HL (higher highs and higher lows)
-    SELL staircase: 3+ consecutive bars making LL/LH (lower lows and lower highs)
+    Returns the staircase depth (>= _STAIRCASE_BARS) if found, or 0 if not found.
+    Return value is bool-compatible: truthy if found, falsy (0) if not.
+
+    BUY staircase: consecutive bars making HH/HL (higher highs and higher lows)
+    SELL staircase: consecutive bars making LL/LH (lower lows and lower highs)
     """
     if len(range_bars) < _STAIRCASE_BARS + 1:
-        return False
+        return 0
 
     recent = range_bars.tail(lookback).reset_index(drop=True)
     highs = recent["high"].values
     lows = recent["low"].values
 
     consecutive = 0
+    max_consecutive = 0
     for i in range(1, len(recent)):
         if direction == "BUY":
             if highs[i] > highs[i - 1] and lows[i] > lows[i - 1]:
                 consecutive += 1
-                if consecutive >= _STAIRCASE_BARS:
-                    return True
+                max_consecutive = max(max_consecutive, consecutive)
             else:
                 consecutive = 0
         else:
             if highs[i] < highs[i - 1] and lows[i] < lows[i - 1]:
                 consecutive += 1
-                if consecutive >= _STAIRCASE_BARS:
-                    return True
+                max_consecutive = max(max_consecutive, consecutive)
             else:
                 consecutive = 0
-    return False
+
+    return max_consecutive if max_consecutive >= _STAIRCASE_BARS else 0
 
 
 def _find_pullback_entry(
@@ -247,16 +250,18 @@ class TrendRider(BaseStrategy):
             return None
 
         # Step 2: Confirm 3-bar staircase
-        if not _detect_3bar_staircase(range_bars, direction):
+        staircase_depth = _detect_3bar_staircase(range_bars, direction)
+        if not staircase_depth:
             return None
 
         # Step 3: Confirm ADX > 25 AND rising (trend gaining strength, not exhausting)
         adx = _adx_1h(ohlc_1h)
+        adx_rising = _adx_is_rising(ohlc_1h)
         if adx <= _ADX_THRESHOLD:
-            log.debug("TrendRider: ADX %.1f ≤ 25 — no signal", adx)
+            log.debug("TrendRider: ADX %.1f <= 25 -- no signal", adx)
             return None
-        if not _adx_is_rising(ohlc_1h):
-            log.debug("TrendRider: ADX %.1f not rising — declining momentum, skip", adx)
+        if not adx_rising:
+            log.debug("TrendRider: ADX %.1f not rising -- declining momentum, skip", adx)
             return None
 
         # Step 4: Find pullback entry
@@ -270,6 +275,12 @@ class TrendRider(BaseStrategy):
 
         partial_pct = get_partial_exit_pct(composite_score)
 
+        pip = PIP_SIZE.get(pair, 0.0001)
+        pullback_bar_abs_idx = len(range_bars) - 2
+        entry_bar_abs_idx = len(range_bars) - 1
+        pullback_bar = range_bars.iloc[-2]
+        pullback_depth_pips = float(pullback_bar["high"] - pullback_bar["low"]) / pip
+
         signal = Signal(
             timestamp=pd.Timestamp(timestamp, tz="UTC") if not hasattr(timestamp, "tzinfo") else timestamp,
             pair=pair,
@@ -280,6 +291,12 @@ class TrendRider(BaseStrategy):
             strategy=self.name,
             composite_score=composite_score,
             partial_exit_pct=partial_pct,
+            adx_at_entry=adx,
+            adx_slope_rising=adx_rising,
+            staircase_depth=staircase_depth,
+            pullback_bar_idx=pullback_bar_abs_idx,
+            pullback_depth_pips=pullback_depth_pips,
+            entry_bar_idx=entry_bar_abs_idx,
         )
 
         log.info(

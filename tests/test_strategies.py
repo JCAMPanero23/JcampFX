@@ -403,3 +403,54 @@ class TestStrategiesGate:
             s = cls()
             result = s.analyze(empty, ohlc, ohlc_1h, cs, _news_state())
             assert result is None, f"{cls.__name__} should return None on empty range_bars"
+
+
+# ---------------------------------------------------------------------------
+# Task 3 -- _detect_3bar_staircase returns int depth (not bool)
+# ---------------------------------------------------------------------------
+
+def test_staircase_returns_int_depth_not_bool():
+    """_detect_3bar_staircase returns int depth >= _STAIRCASE_BARS when found."""
+    from src.strategies.trend_rider import _detect_3bar_staircase
+    import pandas as pd
+    # Build a clean 10-bar BUY staircase (each bar HH/HL)
+    highs = [1.1000 + i * 0.0020 for i in range(10)]
+    lows  = [1.0990 + i * 0.0020 for i in range(10)]
+    bars = pd.DataFrame({
+        "high": highs, "low": lows,
+        "open": lows, "close": highs,
+        "end_time": pd.date_range("2024-01-01", periods=10, freq="h"),
+    })
+    depth = _detect_3bar_staircase(bars, "BUY")
+    assert isinstance(depth, int), f"Expected int, got {type(depth)}"
+    assert depth >= 5  # _STAIRCASE_BARS = 5
+
+
+def test_staircase_returns_zero_when_not_found():
+    """_detect_3bar_staircase returns 0 (falsy) when no staircase found."""
+    from src.strategies.trend_rider import _detect_3bar_staircase
+    import pandas as pd
+    # Alternating bars -- no staircase
+    bars = pd.DataFrame({
+        "high": [1.10, 1.09, 1.11, 1.09, 1.11, 1.09, 1.11, 1.09],
+        "low":  [1.09, 1.08, 1.10, 1.08, 1.10, 1.08, 1.10, 1.08],
+        "open": [1.095]*8, "close": [1.095]*8,
+        "end_time": pd.date_range("2024-01-01", periods=8, freq="h"),
+    })
+    result = _detect_3bar_staircase(bars, "BUY")
+    assert result == 0
+    assert not result  # must be falsy
+
+
+def test_staircase_bool_compat():
+    """_detect_3bar_staircase return value must be truthy when found (bool-compatible)."""
+    from src.strategies.trend_rider import _detect_3bar_staircase
+    import pandas as pd
+    highs = [1.1000 + i * 0.0020 for i in range(10)]
+    lows  = [1.0990 + i * 0.0020 for i in range(10)]
+    bars = pd.DataFrame({
+        "high": highs, "low": lows,
+        "open": lows, "close": highs,
+        "end_time": pd.date_range("2024-01-01", periods=10, freq="h"),
+    })
+    assert _detect_3bar_staircase(bars, "BUY")  # truthy when found

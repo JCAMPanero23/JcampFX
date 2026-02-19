@@ -15,6 +15,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.dcrd.calibrate import load_config as _load_dcrd_config
+
+# Load calibrated thresholds at module import (VC.4)
+_dcrd_config: dict = _load_dcrd_config()
+
 
 # ---------------------------------------------------------------------------
 # Indicator helpers
@@ -65,7 +70,10 @@ def _adx_1h(ohlc_1h: pd.DataFrame, period: int = 14) -> pd.Series:
 
 def bb_width_score(ohlc_1h: pd.DataFrame, period: int = 20, percentile_window: int = 100) -> int:
     """
-    PRD: BB Width expanding rapidly → +5 | In lowest 20th percentile → −5 | else 0
+    PRD §3.3 (v2.2): BB Width expanding rapidly → +5 | In lowest 20th percentile → −5 | else 0
+
+    P20/P80 boundaries loaded from dcrd_config.json when available; otherwise uses
+    rolling within-window percentiles (self-referential, always data-relative).
     """
     min_rows = period + percentile_window
     if len(ohlc_1h) < min_rows:
@@ -75,8 +83,17 @@ def bb_width_score(ohlc_1h: pd.DataFrame, period: int = 20, percentile_window: i
     current = width.iloc[-1]
     recent = width.iloc[-percentile_window:]
 
-    p20 = recent.quantile(0.20)
-    p80 = recent.quantile(0.80)
+    # Use calibrated absolute thresholds if available, else rolling percentiles
+    bb_cfg = _dcrd_config.get("bb_width", {})
+    abs_p20 = bb_cfg.get("p20", None)
+    abs_p80 = bb_cfg.get("p80", None)
+
+    if abs_p20 is not None and abs_p80 is not None:
+        p20 = abs_p20
+        p80 = abs_p80
+    else:
+        p20 = recent.quantile(0.20)
+        p80 = recent.quantile(0.80)
 
     # "Expanding rapidly" = current is above 80th percentile AND rising
     rising = current > width.iloc[-3]
@@ -93,21 +110,24 @@ def bb_width_score(ohlc_1h: pd.DataFrame, period: int = 20, percentile_window: i
 
 def adx_acceleration_score(ohlc_1h: pd.DataFrame, period: int = 14, slope_bars: int = 5) -> int:
     """
-    PRD: ADX slope rising strongly → +5 | Slope collapsing → −5 | else 0
+    PRD §3.3 (v2.2): ADX slope rising strongly → +5 | Slope collapsing → −5 | else 0
+
+    Slope threshold loaded from dcrd_config.json (VC.4).
+    Default: 0.2 ADX points per bar (v2.1 value — valid for both pip sizes).
     """
     min_rows = period * 3 + slope_bars
     if len(ohlc_1h) < min_rows:
         return 0
 
+    slope_threshold = _dcrd_config.get("adx_slope_threshold", 0.2)
+
     adx = _adx_1h(ohlc_1h, period)
     recent_adx = adx.iloc[-slope_bars:]
 
-    # Linear slope via simple first/last comparison + monotonicity check
     slope = (recent_adx.iloc[-1] - recent_adx.iloc[0]) / slope_bars
-    # "Rising strongly" = positive slope over last 5 bars
-    if slope > 0.2:  # threshold: >0.2 ADX points per bar on 1H
+    if slope > slope_threshold:
         return 5
-    if slope < -0.2:
+    if slope < -slope_threshold:
         return -5
     return 0
 

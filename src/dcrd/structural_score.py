@@ -17,6 +17,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.dcrd.calibrate import load_config as _load_dcrd_config
+
+# Load calibrated thresholds at module import (falls back to v2.1 defaults if JSON missing)
+_dcrd_config: dict = _load_dcrd_config()
+
 
 # ---------------------------------------------------------------------------
 # Indicator helpers
@@ -66,7 +71,10 @@ def _adx(ohlc: pd.DataFrame, period: int = 14) -> pd.Series:
 
 def adx_strength_score(ohlc_4h: pd.DataFrame, period: int = 14) -> int:
     """
-    PRD: ADX > 25 + rising slope → 20 | ADX 20–25 → 10 | ADX < 18 → 0
+    PRD §3.2 (v2.2): ADX > P75 + rising slope → 20 | ADX P25–P75 → 10 | ADX < P25 → 0
+
+    Thresholds loaded from dcrd_config.json (VC.1, VC.4).
+    Falls back to v2.1 hardcoded values (P25=18, P75=25) if config unavailable.
 
     Requires at least 3 * period rows for stable ADX.
     Returns 0 if insufficient data.
@@ -75,17 +83,19 @@ def adx_strength_score(ohlc_4h: pd.DataFrame, period: int = 14) -> int:
     if len(ohlc_4h) < min_rows:
         return 0
 
+    adx_cfg = _dcrd_config.get("adx", {})
+    p25 = adx_cfg.get("p25", 18.0)
+    p75 = adx_cfg.get("p75", 25.0)
+
     adx = _adx(ohlc_4h, period)
     current_adx = adx.iloc[-1]
     slope_rising = adx.iloc[-1] > adx.iloc[-3]  # last 3 bars trend
 
-    if current_adx > 25 and slope_rising:
+    if current_adx > p75 and slope_rising:
         return 20
-    if current_adx >= 20:
+    if current_adx >= p25:
         return 10
-    if current_adx < 18:
-        return 0
-    return 10  # 18–20 zone → same as moderate
+    return 0  # below P25
 
 
 # ---------------------------------------------------------------------------
@@ -154,11 +164,18 @@ def market_structure_score(ohlc_4h: pd.DataFrame, lookback: int = 20) -> int:
 
 def atr_expansion_score(ohlc_4h: pd.DataFrame, period: int = 14, avg_period: int = 20) -> int:
     """
-    PRD: ATR_curr / ATR_20avg ≥ 1.2 → 20 | 0.9–1.2 → 10 | < 0.8 → 0
+    PRD §3.2 (v2.2): ATR ratio > P75 → 20 | P25–P75 → 10 | < P25 → 0
+
+    Thresholds loaded from dcrd_config.json (VC.1).
+    Falls back to v2.1 hardcoded values (P25=0.85, P75=1.25) if config unavailable.
     """
     min_rows = period + avg_period
     if len(ohlc_4h) < min_rows:
         return 0
+
+    atr_cfg = _dcrd_config.get("atr_ratio", {})
+    p25 = atr_cfg.get("p25", 0.85)
+    p75 = atr_cfg.get("p75", 1.25)
 
     atr_series = _atr(ohlc_4h, period)
     current_atr = atr_series.iloc[-1]
@@ -168,9 +185,9 @@ def atr_expansion_score(ohlc_4h: pd.DataFrame, period: int = 14, avg_period: int
         return 0
 
     ratio = current_atr / avg_atr
-    if ratio >= 1.2:
+    if ratio >= p75:
         return 20
-    if ratio >= 0.9:
+    if ratio >= p25:
         return 10
     return 0
 

@@ -56,11 +56,13 @@ from src.config import (
     MAX_DAILY_TRADES,
     NEWS_POST_EVENT_MIN_CS,
     PAIRS,
+    PHANTOM_DETECTION_ENABLED,
 )
 from src.exit_manager import get_partial_exit_pct
 from src.news_layer import NewsLayer
 from src.performance_tracker import PerformanceTracker
 from src.risk_engine import compute_trade_risk
+from src.session_filter import SessionFilter, get_session_tag
 from src.signal import Signal
 from src.strategies.base_strategy import BaseStrategy
 
@@ -143,6 +145,7 @@ class BrainCore:
     ) -> None:
         self.performance_tracker = performance_tracker or PerformanceTracker()
         self.news_layer = news_layer or NewsLayer()
+        self.session_filter = SessionFilter()
         self._strategies: list[BaseStrategy] = []
         self._auto_register_strategies()
 
@@ -186,6 +189,7 @@ class BrainCore:
         atr14: float = 0.0,
         sl_pips: float = 0.0,
         pip_value_per_lot: Optional[float] = None,
+        last_bar: Optional[pd.Series] = None,  # v2.2: for phantom detection
     ) -> Optional[Signal]:
         """
         Run all gates and route to the appropriate strategy.
@@ -244,10 +248,38 @@ class BrainCore:
                 log.info("%s: %s", pair, reason)
                 return _blocked_signal(pair, composite_score, current_time, reason)
 
+        # --- Gate 6.5: Phantom bar check (v2.2, PRD §8.4, VP.4) ---
+        if PHANTOM_DETECTION_ENABLED and last_bar is not None:
+            if last_bar.get("is_phantom", False):
+                reason = f"PHANTOM_BLOCKED:{pair}:bar is phantom"
+                log.info("%s: %s", pair, reason)
+                return _blocked_signal(pair, composite_score, current_time, reason)
+
+        # --- Gate 6.6: Session filter (v2.2, PRD §6.3, VS.1–VS.5) ---
+        session_tag = get_session_tag(current_time)
+        # We check against all registered strategies' preferred sessions
+        # The active strategy hasn't been selected yet, so we pre-check per route
+        # Actual per-strategy check happens after Gate 7 determines active_strategy
+
         # --- Gate 7: Route to active strategy by CompositeScore ---
         active_strategy = self._select_strategy(composite_score)
         if active_strategy is None:
             return None
+
+        # --- Gate 7.5: Per-strategy session filter (v2.2) ---
+        session_allowed, session_reason = self.session_filter.check(
+            active_strategy.name, pair, current_time
+        )
+        if not session_allowed:
+            log.info("%s: %s", pair, session_reason)
+            return _blocked_signal(pair, composite_score, current_time, session_reason)
+
+        # --- Gate 7.6: Gap-adjacent bar check (v2.2, PRD §8.4, VP.5) ---
+        if last_bar is not None and last_bar.get("is_gap_adjacent", False):
+            if not getattr(active_strategy, "allow_gap_adjacent", True):
+                reason = f"PHANTOM_BLOCKED:{pair}:gap-adjacent bar ({active_strategy.name} blocks)"
+                log.info("%s: %s", pair, reason)
+                return _blocked_signal(pair, composite_score, current_time, reason)
 
         # --- Gate 8: Strategy cooldown ---
         if self.performance_tracker.is_in_cooldown(active_strategy.name, current_time):
@@ -294,6 +326,7 @@ class BrainCore:
         # --- Gate 11: Attach exit parameters ---
         signal.risk_pct = risk_result["risk_pct"]
         signal.lot_size = risk_result["lot_size"]
+        signal.session_tag = session_tag  # v2.2: tag with active session (PRD §6.3)
         # partial_exit_pct already set by strategy using CS at entry (VE.7)
         # If not set, compute it here as fallback
         if signal.partial_exit_pct == 0.0:

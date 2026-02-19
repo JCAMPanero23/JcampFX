@@ -32,7 +32,8 @@ from src.strategies.base_strategy import BaseStrategy
 log = logging.getLogger(__name__)
 
 _ADX_THRESHOLD = 25.0
-_STAIRCASE_BARS = 3   # minimum consecutive directional bars for staircase
+_ADX_SLOPE_BARS = 5    # bars over which ADX slope is measured (1H bars)
+_STAIRCASE_BARS = 5    # minimum consecutive directional bars for staircase (5×bar_size impulse)
 _PULLBACK_MAX_BARS = 2  # maximum bars in a pullback sequence
 
 
@@ -40,10 +41,10 @@ def _ema(series: pd.Series, period: int) -> pd.Series:
     return series.ewm(span=period, adjust=False).mean()
 
 
-def _adx_1h(ohlc_1h: pd.DataFrame, period: int = 14) -> float:
-    """Return the latest ADX value from 1H OHLC."""
+def _adx_series(ohlc_1h: pd.DataFrame, period: int = 14) -> pd.Series:
+    """Return full ADX series from 1H OHLC."""
     if len(ohlc_1h) < period * 3:
-        return 0.0
+        return pd.Series(dtype=float)
     high = ohlc_1h["high"]
     low = ohlc_1h["low"]
     prev_high = high.shift(1)
@@ -66,8 +67,21 @@ def _adx_1h(ohlc_1h: pd.DataFrame, period: int = 14) -> float:
     plus_di = 100 * pd.Series(plus_dm, index=ohlc_1h.index).ewm(span=period, adjust=False).mean() / (atr + 1e-9)
     minus_di = 100 * pd.Series(minus_dm, index=ohlc_1h.index).ewm(span=period, adjust=False).mean() / (atr + 1e-9)
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9)
-    adx = dx.ewm(span=period, adjust=False).mean()
-    return float(adx.iloc[-1])
+    return dx.ewm(span=period, adjust=False).mean()
+
+
+def _adx_1h(ohlc_1h: pd.DataFrame, period: int = 14) -> float:
+    """Return the latest ADX value from 1H OHLC."""
+    adx = _adx_series(ohlc_1h, period)
+    return float(adx.iloc[-1]) if len(adx) > 0 else 0.0
+
+
+def _adx_is_rising(ohlc_1h: pd.DataFrame, period: int = 14, slope_bars: int = _ADX_SLOPE_BARS) -> bool:
+    """Return True if ADX is rising over the last slope_bars 1H bars."""
+    adx = _adx_series(ohlc_1h, period)
+    if len(adx) < slope_bars + 1:
+        return False
+    return float(adx.iloc[-1]) > float(adx.iloc[-slope_bars - 1])
 
 
 def _detect_trend_direction(ohlc_1h: pd.DataFrame) -> str:
@@ -147,34 +161,44 @@ def _find_pullback_entry(
     highs = recent["high"].values
     lows = recent["low"].values
 
-    # Check if last 1–2 bars are counter-trend (pullback)
-    # and the bar before them was trend-direction
+    # Range bar entry pattern: wait for the RESUMPTION bar after the pullback.
+    # This confirms the pullback has ended before entering (vs predicting reversal).
+    #
+    # BUY pattern (SELL is mirror):
+    #   bar[-2]: pullback bar — close < open (down bar, pullback against uptrend)
+    #   bar[-1]: resumption bar — close >= open (up bar, trend direction confirmed)
+    #
+    # Entry  = close of the resumption bar (confirmed continuation)
+    # SL     = low of the pullback bar (structural swing low)
+    # r_dist = entry − SL (1–2 bar-sizes depending on pullback depth)
     last_idx = len(recent) - 1
-    last_is_pullback = (
-        (direction == "BUY" and closes[last_idx] < opens[last_idx]) or
-        (direction == "SELL" and closes[last_idx] > opens[last_idx])
+
+    # bar[-1] must be a trend-direction (resumption) bar
+    last_is_resumption = (
+        (direction == "BUY" and closes[last_idx] >= opens[last_idx]) or
+        (direction == "SELL" and closes[last_idx] <= opens[last_idx])
     )
-    if not last_is_pullback:
+    if not last_is_resumption:
         return None
 
-    # The bar before the pullback should be trend-direction
-    prev_is_trend = (
-        (direction == "BUY" and closes[last_idx - 1] >= opens[last_idx - 1]) or
-        (direction == "SELL" and closes[last_idx - 1] <= opens[last_idx - 1])
+    # bar[-2] must be a pullback (counter-trend) bar
+    prev_is_pullback = (
+        (direction == "BUY" and closes[last_idx - 1] < opens[last_idx - 1]) or
+        (direction == "SELL" and closes[last_idx - 1] > opens[last_idx - 1])
     )
-    if not prev_is_trend:
+    if not prev_is_pullback:
         return None
 
     entry = closes[last_idx]
 
     if direction == "BUY":
-        sl = lows[last_idx]
+        sl = lows[last_idx - 1]           # pullback bar's structural low
         r_dist = abs(entry - sl)
         if r_dist <= 0:
             return None
         tp_1r = entry + r_dist
     else:
-        sl = highs[last_idx]
+        sl = highs[last_idx - 1]          # pullback bar's structural high
         r_dist = abs(entry - sl)
         if r_dist <= 0:
             return None
@@ -226,10 +250,13 @@ class TrendRider(BaseStrategy):
         if not _detect_3bar_staircase(range_bars, direction):
             return None
 
-        # Step 3: Confirm ADX > 25
+        # Step 3: Confirm ADX > 25 AND rising (trend gaining strength, not exhausting)
         adx = _adx_1h(ohlc_1h)
         if adx <= _ADX_THRESHOLD:
             log.debug("TrendRider: ADX %.1f ≤ 25 — no signal", adx)
+            return None
+        if not _adx_is_rising(ohlc_1h):
+            log.debug("TrendRider: ADX %.1f not rising — declining momentum, skip", adx)
             return None
 
         # Step 4: Find pullback entry

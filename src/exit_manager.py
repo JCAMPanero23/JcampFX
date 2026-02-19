@@ -41,6 +41,7 @@ from src.config import (
     PARTIAL_EXIT_R,
     PARTIAL_EXIT_TIERS,
     PIP_SIZE,
+    REGIME_DETERIORATION_THRESHOLD,
 )
 
 log = logging.getLogger(__name__)
@@ -246,3 +247,38 @@ def expected_locked_profit_r(partial_pct: float) -> float:
     Returns partial_pct × 1.5R
     """
     return partial_pct * PARTIAL_EXIT_R
+
+
+# ---------------------------------------------------------------------------
+# Regime deterioration (v2.2, PRD §3.7)
+# ---------------------------------------------------------------------------
+
+def should_force_close_runner(
+    entry_score: float,
+    current_score: float,
+    threshold: float = float(REGIME_DETERIORATION_THRESHOLD),
+) -> bool:
+    """
+    Return True if the runner should be force-closed due to regime deterioration.
+
+    PRD §3.7 (VD.9, VE.8): Force-close the runner if CompositeScore drops
+    more than `threshold` points from the entry-time score.
+
+    Exit parameters (partial %, Chandelier config) are already frozen at entry.
+    This is an ADDITIONAL optional force-close guard.
+
+    Parameters
+    ----------
+    entry_score   : CompositeScore frozen at trade entry
+    current_score : Current CompositeScore at bar evaluation time
+    threshold     : Points drop required to trigger (default: 40)
+    """
+    drop = entry_score - current_score
+    if drop > threshold:
+        log.info(
+            "Regime deterioration: score dropped %.1f pts (entry=%.1f, current=%.1f) "
+            "— force-close runner triggered",
+            drop, entry_score, current_score,
+        )
+        return True
+    return False

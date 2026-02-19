@@ -70,16 +70,23 @@ class RangeBar:
     tick_volume: int
     start_time:  pd.Timestamp
     end_time:    pd.Timestamp
+    # v2.2 Phantom Liquidity Detection flags (PRD §8)
+    is_phantom:          bool  = False  # Bar 2+ produced from the same tick (VP.1)
+    is_gap_adjacent:     bool  = False  # First bar in a multi-bar tick sequence (VP.2)
+    tick_boundary_price: float = 0.0    # Actual tick mid-price — used for exit fills on phantom bars (VP.6)
 
     def to_dict(self) -> dict:
         return {
-            "open":        self.open,
-            "high":        self.high,
-            "low":         self.low,
-            "close":       self.close,
-            "tick_volume": self.tick_volume,
-            "start_time":  self.start_time,
-            "end_time":    self.end_time,
+            "open":               self.open,
+            "high":               self.high,
+            "low":                self.low,
+            "close":              self.close,
+            "tick_volume":        self.tick_volume,
+            "start_time":         self.start_time,
+            "end_time":           self.end_time,
+            "is_phantom":         self.is_phantom,
+            "is_gap_adjacent":    self.is_gap_adjacent,
+            "tick_boundary_price": self.tick_boundary_price,
         }
 
 
@@ -133,10 +140,17 @@ class RangeBarConverter:
         self._bar_start = ts
         self._bar_tick_vol = 1
 
-    def _close_bar_up(self, ts: pd.Timestamp) -> RangeBar:
+    def _close_bar_up(
+        self,
+        ts: pd.Timestamp,
+        is_phantom: bool = False,
+        is_gap_adjacent: bool = False,
+        tick_boundary_price: float = 0.0,
+    ) -> RangeBar:
         """Close an up bar with exact high = open + bar_size, low = open (no wicks).
         PRD V1.3: High - Low = exactly bar_size."""
         close_price = round(self._bar_open + self.bar_size, 10)  # type: ignore[operator]
+        tbp = tick_boundary_price if tick_boundary_price != 0.0 else close_price
         return RangeBar(
             open=self._bar_open,      # type: ignore[arg-type]
             high=close_price,         # exact: open + bar_size
@@ -145,12 +159,22 @@ class RangeBarConverter:
             tick_volume=self._bar_tick_vol,
             start_time=self._bar_start,  # type: ignore[arg-type]
             end_time=ts,
+            is_phantom=is_phantom,
+            is_gap_adjacent=is_gap_adjacent,
+            tick_boundary_price=tbp,
         )
 
-    def _close_bar_down(self, ts: pd.Timestamp) -> RangeBar:
+    def _close_bar_down(
+        self,
+        ts: pd.Timestamp,
+        is_phantom: bool = False,
+        is_gap_adjacent: bool = False,
+        tick_boundary_price: float = 0.0,
+    ) -> RangeBar:
         """Close a down bar with exact low = open - bar_size, high = open (no wicks).
         PRD V1.3: High - Low = exactly bar_size."""
         close_price = round(self._bar_open - self.bar_size, 10)  # type: ignore[operator]
+        tbp = tick_boundary_price if tick_boundary_price != 0.0 else close_price
         return RangeBar(
             open=self._bar_open,      # type: ignore[arg-type]
             high=self._bar_open,      # exact: open (no upward wick)
@@ -159,6 +183,9 @@ class RangeBarConverter:
             tick_volume=self._bar_tick_vol,
             start_time=self._bar_start,  # type: ignore[arg-type]
             end_time=ts,
+            is_phantom=is_phantom,
+            is_gap_adjacent=is_gap_adjacent,
+            tick_boundary_price=tbp,
         )
 
     def _close_bar_gap(self, ts: pd.Timestamp) -> RangeBar:
@@ -214,10 +241,16 @@ class RangeBarConverter:
         self._bar_tick_vol += 1
 
         # --- Check completion conditions ---
+        # Track how many bars are produced by this single tick (for phantom detection).
+        bars_from_this_tick = 0
+
         # Up bar: price reached open + bar_size (no-wick: high=open+bar_size, low=open)
         while (self._bar_high - self._bar_open) >= self.bar_size - 1e-10:  # type: ignore[operator]
-            bar = self._close_bar_up(ts)
+            is_phantom = bars_from_this_tick > 0
+            is_gap_adj = False  # will be set after loop if needed
+            bar = self._close_bar_up(ts, is_phantom=is_phantom, tick_boundary_price=price)
             completed.append(bar)
+            bars_from_this_tick += 1
             self._open_bar(bar.close, ts)
             # Re-evaluate current price against the new bar
             if price > self._bar_high:
@@ -227,13 +260,33 @@ class RangeBarConverter:
 
         # Down bar: price reached open - bar_size (no-wick: low=open-bar_size, high=open)
         while (self._bar_open - self._bar_low) >= self.bar_size - 1e-10:   # type: ignore[operator]
-            bar = self._close_bar_down(ts)
+            is_phantom = bars_from_this_tick > 0
+            bar = self._close_bar_down(ts, is_phantom=is_phantom, tick_boundary_price=price)
             completed.append(bar)
+            bars_from_this_tick += 1
             self._open_bar(bar.close, ts)
             if price > self._bar_high:
                 self._bar_high = price
             if price < self._bar_low:
                 self._bar_low = price
+
+        # Post-loop: if this tick produced multiple bars, mark the FIRST as gap_adjacent (VP.2)
+        if bars_from_this_tick > 1:
+            first_idx = len(completed) - bars_from_this_tick
+            first_bar = completed[first_idx]
+            # Rebuild with is_gap_adjacent=True (dataclass is immutable-ish; replace field)
+            completed[first_idx] = RangeBar(
+                open=first_bar.open,
+                high=first_bar.high,
+                low=first_bar.low,
+                close=first_bar.close,
+                tick_volume=first_bar.tick_volume,
+                start_time=first_bar.start_time,
+                end_time=first_bar.end_time,
+                is_phantom=False,           # First bar is organic in direction, not phantom
+                is_gap_adjacent=True,       # But marks it as gap-adjacent (VP.2)
+                tick_boundary_price=first_bar.tick_boundary_price,
+            )
 
         return completed
 
@@ -347,9 +400,11 @@ def ticks_to_range_bars(
 
 
 def _empty_range_bar_df() -> pd.DataFrame:
-    return pd.DataFrame(
-        columns=["open", "high", "low", "close", "tick_volume", "start_time", "end_time"]
-    )
+    return pd.DataFrame(columns=[
+        "open", "high", "low", "close", "tick_volume",
+        "start_time", "end_time",
+        "is_phantom", "is_gap_adjacent", "tick_boundary_price",
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +432,13 @@ def load_range_bars(pair: str, bar_pips: int | None = None) -> pd.DataFrame:
     df = pd.read_parquet(path)
     df["start_time"] = pd.to_datetime(df["start_time"], utc=True)
     df["end_time"]   = pd.to_datetime(df["end_time"], utc=True)
+    # Ensure v2.2 phantom columns exist (backward-compat with old Parquet files)
+    if "is_phantom" not in df.columns:
+        df["is_phantom"] = False
+    if "is_gap_adjacent" not in df.columns:
+        df["is_gap_adjacent"] = False
+    if "tick_boundary_price" not in df.columns:
+        df["tick_boundary_price"] = df["close"]
     return df.sort_values("start_time").reset_index(drop=True)
 
 

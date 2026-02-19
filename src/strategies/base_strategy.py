@@ -40,6 +40,10 @@ class BaseStrategy(ABC):
     #: Maximum CompositeScore for this strategy to be active (100 = no upper limit)
     max_score: float = 100.0
 
+    #: v2.2 (PRD §8.4, VP.5): Whether strategy will enter on gap-adjacent bars.
+    #: BreakoutRider: False (hard block). TrendRider/RangeRider: True (configurable).
+    allow_gap_adjacent: bool = True
+
     def is_regime_active(self, composite_score: float) -> bool:
         """Return True if CompositeScore is within this strategy's regime range."""
         return self.min_score <= composite_score <= self.max_score

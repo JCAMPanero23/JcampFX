@@ -78,23 +78,35 @@ def _is_bb_compressed(closes: pd.Series, percentile_window: int = 100) -> bool:
     return current <= threshold
 
 
-def _rb_speed_increasing(range_bars: pd.DataFrame, lookback: int = _SPEED_LOOKBACK) -> bool:
+def _rb_speed_adequate(range_bars: pd.DataFrame, min_bars: int = 2, window_minutes: int = 30) -> bool:
     """
-    Return True if Range Bar formation speed is increasing.
-    Proxy: duration of last bar < average duration of prior bars.
+    Return True if Range Bar formation speed meets the BreakoutRider threshold.
+
+    PRD §12.2 (R17, V2.3): ≥2 bars formed in the last 30 minutes (at 20-pip resolution).
+    This replaces the v2.1 proxy of "last bar duration < average duration".
+
+    Parameters
+    ----------
+    range_bars     : Range Bar DataFrame with end_time column
+    min_bars       : Minimum bars required in window (default 2)
+    window_minutes : Look-back window in minutes (default 30)
     """
-    if len(range_bars) < lookback + 2 or "start_time" not in range_bars.columns:
-        return True  # insufficient data — assume speed is OK
+    if len(range_bars) < 2 or "end_time" not in range_bars.columns:
+        return True  # insufficient data — assume speed OK
 
-    recent = range_bars.tail(lookback + 1)
-    durations = (
-        pd.to_datetime(recent["end_time"]) - pd.to_datetime(recent["start_time"])
-    ).dt.total_seconds()
+    last_time = pd.to_datetime(range_bars["end_time"].iloc[-1], utc=True)
+    cutoff = last_time - pd.Timedelta(minutes=window_minutes)
 
-    last_duration = durations.iloc[-1]
-    avg_duration = durations.iloc[:-1].mean()
+    recent = range_bars[pd.to_datetime(range_bars["end_time"], utc=True) >= cutoff]
+    count = len(recent)
 
-    return last_duration < avg_duration  # faster bars = higher speed
+    if count < min_bars:
+        log.debug(
+            "BreakoutRider: only %d bars in last %d min (need %d) — speed insufficient",
+            count, window_minutes, min_bars,
+        )
+        return False
+    return True
 
 
 def _is_breakout_bar(range_bars: pd.DataFrame, ohlc_as_rb: pd.DataFrame | None) -> tuple[bool, str]:
@@ -138,12 +150,16 @@ class BreakoutRider(BaseStrategy):
     BreakoutRider strategy — active when 30 ≤ CompositeScore ≤ 70 (Transitional regime).
 
     Entry: RB close outside Keltner during BB compression breakout
-    Confirmation: RB speed increasing + micro-structure break
+    Confirmation: RB speed ≥2 bars/30min + micro-structure break
+    Sessions: London Open (07–09 UTC) and NY Open (12–14 UTC) — hard filter
     """
 
     name = "BreakoutRider"
     min_score = float(STRATEGY_BREAKOUTRIDER_MIN_CS)  # 30
     max_score = float(STRATEGY_TRENDRIDER_MIN_CS)      # 70
+
+    # v2.2: gap-adjacent bars block entries for BreakoutRider (PRD §8.4, VP.5)
+    allow_gap_adjacent: bool = False
 
     def analyze(
         self,
@@ -161,14 +177,12 @@ class BreakoutRider(BaseStrategy):
         if not self.is_regime_active(composite_score):
             return None
 
-        if range_bars is None or len(range_bars) < _KC_PERIOD + 5:
+        if range_bars is None or len(range_bars) < _BB_PERIOD + 100:
             return None
 
-        if ohlc_1h is None or len(ohlc_1h) < _BB_PERIOD + 100:
-            return None
-
-        # Step 1: Check BB compression on 1H OHLC
-        if not _is_bb_compressed(ohlc_1h["close"]):
+        # Step 1: Check BB compression on range bar closes (consistent with Keltner basis;
+        # PRD §12.2 does not specify timeframe — RB closes avoid 1H resolution mismatch)
+        if not _is_bb_compressed(range_bars["close"]):
             log.debug("BreakoutRider: no BB compression — skip")
             return None
 
@@ -177,9 +191,9 @@ class BreakoutRider(BaseStrategy):
         if not is_breakout:
             return None
 
-        # Step 3: Check RB speed is increasing
-        if not _rb_speed_increasing(range_bars):
-            log.debug("BreakoutRider: RB speed not increasing — skip")
+        # Step 3: Check RB speed meets threshold (≥2 bars/30min, PRD §12.2 R17)
+        if not _rb_speed_adequate(range_bars):
+            log.debug("BreakoutRider: RB speed insufficient (<2 bars/30min) — skip")
             return None
 
         # Build entry parameters

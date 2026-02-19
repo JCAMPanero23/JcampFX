@@ -49,6 +49,8 @@ class Signal:
     DAILY_LOSS_CAP       — 2R daily loss cap triggered
     STRATEGY_COOLDOWN    — strategy paused (5 consec losses in last 10)
     GOLD_GATE            — XAUUSD blocked until equity >= $2,000
+    PHANTOM_BLOCKED      — entry on phantom bar blocked (PRD §8.4, VP.4)
+    SESSION_BLOCKED      — entry outside strategy's allowed session (PRD §6.3, VS.5)
     """
 
     # --- Strategy-provided fields ---
@@ -66,6 +68,8 @@ class Signal:
     partial_exit_pct: float = 0.0
     lot_size: float = 0.0
     blocked_reason: Optional[str] = None
+    # v2.2: session tag (Tokyo/London/NY/Overlap/Off-Hours) set by BrainCore (PRD §6.3)
+    session_tag: str = ""
 
     # --- Derived convenience properties ---
     @property
@@ -102,4 +106,5 @@ class Signal:
             "partial_exit_pct": self.partial_exit_pct,
             "lot_size": self.lot_size,
             "blocked_reason": self.blocked_reason,
+            "session_tag": self.session_tag,
         }

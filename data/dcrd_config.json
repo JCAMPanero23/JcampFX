@@ -1,0 +1,31 @@
+{
+  "adx": {
+    "p25": 22.58278718129837,
+    "p75": 38.373348626748395
+  },
+  "atr_ratio": {
+    "p25": 0.8974506954755141,
+    "p75": 1.08859261139217
+  },
+  "rb_speed": {
+    "p25": 0.0,
+    "p75": 1.4
+  },
+  "bb_width": {
+    "p20": 0.003478665507207933,
+    "p80": 0.009326111574836695
+  },
+  "adx_slope_threshold": 0.2,
+  "csm_widen_pct": 10.0,
+  "csm_narrow_pct": 30.0,
+  "calibration_date": "2026-02-19",
+  "dataset_range": "up to 2025-11-19 (excluding 3-month holdout)",
+  "pairs": [
+    "EURUSD",
+    "GBPUSD",
+    "USDCHF",
+    "USDJPY",
+    "AUDJPY"
+  ],
+  "version": "2.2"
+}

@@ -50,47 +50,123 @@ MT5 Terminal: `C:\Users\jcamp\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF
 - Exits on phantom bars fill at actual tick boundary price, not Range Bar close
 - DCRD thresholds are data-driven (percentile-based), stored in `dcrd_config.json`
 
-## Phase 3 Backtest Results (Feb 19, 2026 — First Clean Run)
+## Phase 3 Backtest Results — Evolution Log
 
-**Run ID:** `run_20260219_150916` | **Data:** 10-pip Range Bars + DCRD fallback CS=50
+### Run 1 (Feb 19, 2026) — Pre-v2.2, DCRD fallback, 10-pip bars
+**Run ID:** `run_20260219_150916`
+| Net P&L | Sharpe | Max DD | Win Rate | PF | Trades |
+|---|---|---|---|---|---|
+| **+$44.96** ✅ | 0.60 | 17.1% | 39.9% | 1.07 | 188 |
+- DCRD fallback CS=50 → all BreakoutRider regime (no real DCRD)
+- 10-pip Range Bars. Phase 3 gate V3.1 technically PASS but not meaningful.
 
-| Metric | Value | Gate |
+---
+
+### Run 2 (Feb 19, 2026) — v2.2 complete, 20-pip bars, calibrated DCRD, resumption entry
+**Run ID:** `run_20260219_190902`
+| Net P&L | Sharpe | Max DD | Win Rate | PF | Trades |
+|---|---|---|---|---|---|
+| **-$218.71** ❌ | -2.26 | 48.8% | 36.0% | 0.76 | 292 |
+
+**v2.2 code changes applied before this run:**
+- R12: 20-pip Range Bars (EURUSD/GBPUSD/USDCHF), 25-pip (USDJPY/AUDJPY)
+- R13+R14: `is_gap_adjacent` flag + phantom exit fills at tick boundary price
+- R15: DCRD percentile-based calibration → `dcrd_config.json`
+- R16: Regime deterioration (force-close runner if CS drops >40 pts from entry CS)
+- R17: BreakoutRider full spec — Keltner(20,1.5×ATR) + BB compression P20 + RB speed ≥2/30min
+- R18: Session filter module (Tokyo/London/NY hard/soft per strategy)
+- **TrendRider: resumption bar entry** — enter on first trend-direction bar AFTER pullback (not AT pullback close). SL = pullback bar's structural extreme. Eliminates r_dist=0 bug.
+- **BreakoutRider: BB compression on Range Bar closes** (not 1H OHLC — temporal mismatch fix)
+- **Backtester: performance tracker integration** — closed trades feed R-multiples to BrainCore
+
+**Trade breakdown by pair:**
+| Pair | Trades | WR | Total R | PnL |
+|---|---|---|---|---|
+| USDJPY | 136 | 38% | -17.67R | -$124 |
+| AUDJPY | 48 | 33% | -7.93R | -$39 |
+| USDCHF | 27 | 30% | -6.91R | -$36 |
+| EURUSD | 29 | 38% | -1.74R | -$12 |
+| GBPUSD | 50 | 38% | -3.32R | +$2 |
+
+**Root cause analysis:**
+- **65.2% of trades (189/290) hit SL before partial exit fires** — avg -0.982R
+- **34.8% of trades reach 1.5R partial exit** — avg +1.466R total
+- Breakeven requires ~40% partial-reach rate (E[R] = 0.40×1.47 + 0.60×(-0.98) = 0)
+- Gap from breakeven: 5.2 percentage points on partial-reach rate
+- Monthly WR variance is extreme: May-24=86%, Aug-24=59% vs Oct-24=17%, Jul-25=0%
+- **USDJPY overweight**: 47% of all trades but same WR as EURUSD/GBPUSD — concentration risk
+- **DCRD locks to CS≥70 (TrendRider) ~89% of time** → BreakoutRider only 2 trades in 2 years
+
+**Close reason breakdown (TrendRider):**
+| Reason | Count | Notes |
 |---|---|---|
-| Net P&L | **+$44.96** | V3.1 PASS |
-| Sharpe Ratio | 0.60 | V3.20 FAIL (target >1.0) |
-| Max Drawdown | 17.1% | V3.2 PASS (<20%) |
-| Win Rate | 39.9% | — |
-| Profit Factor | 1.07 | V3.21 FAIL (target >1.5) |
-| Trades | 188 | — |
+| SL_HIT | 176 | 61% — full loss before partial exit |
+| CHANDELIER_HIT | 100 | 34% — triggered after partial or as runner stop |
+| 2R_CAP | 9 | daily loss cap fired |
+| WEEKEND_CLOSE | 5 | Friday close rule |
 
-**Notes:**
-- Results used DCRD fallback score (50.0) — no 4H/1H OHLC calibration applied yet
-- All trades in BreakoutRider regime (CS=50 → transitional zone)
-- Bugs fixed before this run: cross-pair price poisoning on 2R_CAP/WEEKEND_CLOSE closes + lot size cap (MAX_LOT=5.0)
-- V2.2 upgrade (20-pip bars + phantom detection + session filter + regime deterioration) expected to meaningfully improve Sharpe and Profit Factor
+---
 
-## PRD v2.1 → v2.2 Upgrade Scope (Next Session)
+### Run 3 (Feb 19, 2026) — ADX slope filter added (5-bar staircase)
+| Net P&L | Win Rate | Total R | Trades |
+|---|---|---|---|
+| **-$199** ❌ | 35.0% | -34.12R | 180 |
+- ADX slope filter reduced trade count 38% (292→180) but WR dropped slightly (36%→35%)
+- Per-trade loss WORSE: -0.19R vs -0.136R → slope filter selected LOWER quality signals
+- **Conclusion**: ADX slope (rising ADX) does not predict partial-reach rate improvement
 
-The following are **new requirements** from PRD v2.2 not yet implemented:
+---
 
-| ID | Feature | Priority |
-|---|---|---|
-| R12 | **20-pip Range Bar migration** (from 10-pip) — re-download tick data, rebuild RB cache | CRITICAL |
-| R13 | **Phantom Liquidity Detection** — `is_gap_adjacent` flag (VP.2); `is_phantom` exists (VP.1 ✅) | CRITICAL |
-| R14 | **Phantom exit fills** at actual tick boundary price (VP.6) | CRITICAL |
-| R15 | **DCRD Calibration** — percentile-based ADX/ATR/RB-speed thresholds → `dcrd_config.json` (VC.1–VC.5) | GATE |
-| R16 | **Regime Deterioration** — force-close runner if CS drops >40 pts from entry (VD.9, VE.8) | CRITICAL |
-| R17 | **BreakoutRider full spec** — Keltner(20, 1.5×ATR) + BB compression <P20 + RB speed ≥2 bars/30min (V2.3) | CRITICAL |
-| R18 | **Session Filtering** — Tokyo/London/NY/Overlap per-strategy hard/soft filters (VS.1–VS.6) | MUST PASS |
+## TrendRider Debugging Experiments Summary
 
-**Recommended implementation order:**
-1. R12 — 20-pip migration (foundational: everything else calibrates off this)
-2. R13+R14 — Phantom gap-adjacent + phantom exit fills
-3. R15 — DCRD calibration pipeline + `dcrd_config.json`
-4. R16 — Regime deterioration in ExitManager + BacktestEngine
-5. R17 — BreakoutRider entry spec upgrade
-6. R18 — Session filter module + Brain Core integration
-7. Re-run Phase 3 backtest → target V3.1 PASS with calibrated DCRD
+| Config | Trades | WR | Total R | PnL | Notes |
+|---|---|---|---|---|---|
+| 1-bar pullback entry (SL bug) | 2 | — | — | — | r_dist=0 bug, SL==entry |
+| Resumption bar, staircase=5 | 292 | 36% | -39.6R | -$219 | Baseline v2.2 |
+| Resumption bar, staircase=3 | 430 | 34% | -81.2R | -$323 | 3-bar = too noisy |
+| Resumption bar, staircase=5, ADX slope | 180 | 35% | -34.1R | -$199 | Fewer trades, same WR |
+
+**What we know:**
+- Resumption bar entry is correct (eliminates r_dist=0 bug, natural SL placement)
+- 5-bar staircase is the right level (3-bar too noisy, no staircase untested)
+- ADX slope filter is NOT predictive of entry quality
+- The 34-36% partial-reach rate is a STRUCTURAL property of the current entry pattern
+- EURUSD/GBPUSD near breakeven; USDJPY/AUDJPY/USDCHF are the main drag
+
+**What we DON'T know yet (next session — backtest playback):**
+- WHY Oct-24 (17% WR) and Jul-25 (0% WR) were catastrophically bad
+- What the Range Bars looked like at entry during losing months vs winning months
+- Whether staircase is detecting TRUE trending or just ranging bounce patterns
+- Whether USDJPY's 136 trades are in genuinely trending conditions or false positives
+- What the DCRD composite score looked like bar-by-bar during bad months
+
+---
+
+## Next Session Plan: Backtest Playback / Debug Visualizer
+
+Build a **Cinema-style bar-by-bar playback** that lets us inspect what the backtest engine saw at each signal:
+
+**Proposed `backtester/playback.py`** (or extend the Cinema tab in dashboard):
+1. Load a backtest run's trades.parquet + range bar data for a given pair
+2. For each trade, show:
+   - The 20 Range Bars leading up to entry (with staircase highlighted)
+   - Entry bar, pullback bar, resumption bar (color-coded)
+   - DCRD composite score at entry time
+   - ADX value at entry time
+   - Whether trade was a win (reached 1.5R) or loss (SL hit)
+3. Filter view: show only LOSING trades in specific bad months (Oct-24, Jul-25)
+4. Let us visually inspect whether staircase pattern looks like a real trend or a false signal
+
+**Key questions to answer visually:**
+- Do losing trades have "weaker" staircase patterns than winning trades?
+- Are losing trades entering near obvious support/resistance levels?
+- Is the pullback bar unusually large (deeper pullback = trend might be reversing)?
+- Are winning months characterized by a particular DCRD score range?
+
+**Implementation priority:**
+1. Add a `generate_signal_snapshots()` function to extract per-trade context (20-bar window, CS, ADX)
+2. Export as JSON/CSV for the Cinema dashboard tab to render
+3. Add a "Trade Inspector" view in the dashboard: click a trade → see its bar context
 
 ## Development Phases
 | Phase | Focus | Status | Gate |

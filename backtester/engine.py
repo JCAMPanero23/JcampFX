@@ -54,7 +54,7 @@ from src.config import (
     WEEKEND_CLOSE_MINUTES,
 )
 from src.dcrd.dcrd_engine import DCRDEngine
-from src.exit_manager import calculate_1_5r_price, is_at_1_5r
+from src.exit_manager import calculate_1_5r_price, is_at_1_5r, should_force_close_runner
 from src.news_layer import NewsLayer
 from src.signal import Signal
 
@@ -177,30 +177,37 @@ class BacktestEngine:
             # Daily reset
             account.reset_daily_if_needed(end_time)
 
+            # Build DCRD inputs first (needed for regime deterioration in exit checks)
+            rb_window_df = pd.DataFrame(rb_window_cache[pair])
+            composite_score, regime = self._compute_dcrd(pair, end_time, rb_window_df)
+
             # 1. Check exits for all open trades on this pair
+            open_ids_before = {t.trade_id for t in account.open_trades}
             open_on_pair = [t for t in list(account.open_trades) if t.pair == pair]
             for trade in open_on_pair:
-                self._check_exits_on_bar(trade, bar, account, end_time)
+                self._check_exits_on_bar(trade, bar, account, end_time, composite_score)
+            # Feed closed trades back to performance tracker (enables cooldowns)
+            self._report_closed_trades(account, open_ids_before, end_time)
 
             # 2. Daily 2R cap — if hit, force-close remaining positions
             if account.is_daily_cap_hit():
+                open_ids_cap = {t.trade_id for t in account.open_trades}
                 for trade in list(account.open_trades):
                     # Use the trade's own pair price, not the current bar's pair price
                     close_px = last_close.get(trade.pair, trade.entry_price)
                     account.close_trade(trade, close_px, end_time, "2R_CAP")
+                self._report_closed_trades(account, open_ids_cap, end_time)
                 continue  # No new entries on same bar as cap hit
 
             # 3. Weekend close (Friday ≥ 21:40 UTC = 5 min before 22:00 close)
             if _is_near_friday_close(end_time):
+                open_ids_wknd = {t.trade_id for t in account.open_trades}
                 for trade in list(account.open_trades):
                     # Use the trade's own pair price, not the current bar's pair price
                     close_px = last_close.get(trade.pair, trade.entry_price)
                     account.close_trade(trade, close_px, end_time, "WEEKEND_CLOSE")
+                self._report_closed_trades(account, open_ids_wknd, end_time, is_weekend=True)
                 continue
-
-            # 4. Build DCRD inputs (point-in-time, no lookahead)
-            rb_window_df = pd.DataFrame(rb_window_cache[pair])
-            composite_score, regime = self._compute_dcrd(pair, end_time, rb_window_df)
 
             # Record for timeline
             dcrd_records.append({
@@ -225,6 +232,7 @@ class BacktestEngine:
                 composite_score=composite_score,
                 account_state=account.get_account_state(),
                 current_time=end_time,
+                last_bar=bar,  # v2.2: phantom detection (VP.4)
             )
 
             # 6. Open trade if signal is valid and unblocked
@@ -265,15 +273,25 @@ class BacktestEngine:
         bar: pd.Series,
         account: BacktestAccount,
         timestamp: pd.Timestamp,
+        current_composite_score: float = 50.0,
     ) -> None:
         """
         Check all exit conditions for one trade against one Range Bar.
 
         Conservative rule: if both SL and 1.5R are hit in the same bar → SL wins.
+
+        v2.2 additions:
+          - VP.6: Phantom bar exits use tick_boundary_price instead of bar close/SL
+          - VD.9/VE.8: Regime deterioration force-close for runner phase
         """
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
         bar_close = float(bar["close"])
+
+        # v2.2: determine exit fill price — phantom bars fill at tick boundary (VP.6)
+        is_phantom_bar = bool(bar.get("is_phantom", False))
+        is_gap_adj = bool(bar.get("is_gap_adjacent", False))
+        tick_boundary = float(bar.get("tick_boundary_price", bar_close))
 
         atr14 = _estimate_atr(trade.pair)  # simple estimate; real ATR from OHLC when available
 
@@ -285,7 +303,9 @@ class BacktestEngine:
                 else bar_high >= trade.sl_price
             )
             if sl_hit:
-                account.close_trade(trade, trade.sl_price, timestamp, "SL_HIT")
+                # v2.2 (VP.6): phantom/gap-adj exit fills at tick boundary, not SL price
+                fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else trade.sl_price
+                account.close_trade(trade, fill_price, timestamp, "SL_HIT")
                 return
 
             # Check 1.5R partial exit
@@ -296,9 +316,16 @@ class BacktestEngine:
                 else bar_low <= target_1_5r
             )
             if at_1_5r:
-                account.apply_partial_exit(trade, target_1_5r, timestamp, atr14)
+                fill_1_5r = tick_boundary if (is_phantom_bar or is_gap_adj) else target_1_5r
+                account.apply_partial_exit(trade, fill_1_5r, timestamp, atr14)
 
         elif trade.phase == "runner":
+            # v2.2 (VD.9, VE.8): Regime deterioration force-close
+            if should_force_close_runner(trade.composite_score, current_composite_score):
+                fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else bar_close
+                account.close_trade(trade, fill_price, timestamp, "REGIME_DETERIORATION")
+                return
+
             # Update Chandelier with bar extreme
             bar_extreme = bar_high if trade.direction.upper() == "BUY" else bar_low
             account.update_chandelier_for_trade(trade, bar_extreme, atr14)
@@ -310,7 +337,37 @@ class BacktestEngine:
                 else bar_high >= trade.chandelier_sl
             )
             if chandelier_hit:
-                account.close_trade(trade, trade.chandelier_sl, timestamp, "CHANDELIER_HIT")
+                # v2.2 (VP.6): phantom bar chandelier exits fill at tick boundary
+                fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else trade.chandelier_sl
+                account.close_trade(trade, fill_price, timestamp, "CHANDELIER_HIT")
+
+    # ------------------------------------------------------------------
+    # Performance tracker feedback
+    # ------------------------------------------------------------------
+
+    def _report_closed_trades(
+        self,
+        account: BacktestAccount,
+        open_ids_before: set,
+        timestamp: pd.Timestamp,
+        is_weekend: bool = False,
+    ) -> None:
+        """
+        Report newly-closed trades to BrainCore's performance tracker.
+        This enables the strategy cooldown system to function in backtests.
+        """
+        current_open_ids = {t.trade_id for t in account.open_trades}
+        just_closed_ids = open_ids_before - current_open_ids
+        if not just_closed_ids:
+            return
+        for trade in account.closed_trades:
+            if trade.trade_id in just_closed_ids:
+                self._brain.performance_tracker.add_trade(
+                    strategy=trade.strategy,
+                    r_result=float(trade.r_multiple_total),
+                    timestamp=timestamp,
+                    is_weekend_close=is_weekend,
+                )
 
     # ------------------------------------------------------------------
     # Trade opening

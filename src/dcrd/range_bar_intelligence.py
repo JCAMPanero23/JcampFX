@@ -14,6 +14,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from src.dcrd.calibrate import load_config as _load_dcrd_config
+
+# Load calibrated RB speed thresholds at module import (VC.4, VC.5)
+_dcrd_config: dict = _load_dcrd_config()
+
 
 # ---------------------------------------------------------------------------
 # Sub-component 1 — RB Speed Score (0 / 5 / 10)
@@ -22,11 +27,14 @@ import pandas as pd
 def rb_speed_score(
     range_bars: pd.DataFrame,
     lookback_minutes: int = 60,
-    high_threshold: int = 6,
-    slow_threshold: int = 2,
+    high_threshold: float | None = None,
+    slow_threshold: float | None = None,
 ) -> int:
     """
-    PRD: Bars/60min — High = 10, Normal = 5, Slow = 0
+    PRD §3.4 (v2.2): Bars/60min — High = 10, Normal = 5, Slow = 0
+
+    Thresholds loaded from dcrd_config.json (VC.5: recalibrated for 20-pip bars).
+    Falls back to defaults (high=3, slow=1) for 20-pip bars if config unavailable.
 
     Counts how many Range Bars formed in the last `lookback_minutes` minutes.
     Uses the 'end_time' column to determine which bars fall in the window.
@@ -35,8 +43,8 @@ def rb_speed_score(
     ----------
     range_bars       : DataFrame with 'start_time' and 'end_time' columns
     lookback_minutes : Rolling window in minutes (default 60)
-    high_threshold   : Bars/hour threshold for "High" speed (default 6)
-    slow_threshold   : Bars/hour threshold below which is "Slow" (default 2)
+    high_threshold   : Override bars/hour for "High" speed (default: from config)
+    slow_threshold   : Override bars/hour for "Slow" speed (default: from config)
     """
     if range_bars is None or len(range_bars) < 2:
         return 5  # insufficient data — default normal
@@ -45,15 +53,20 @@ def rb_speed_score(
     if not required_cols.issubset(range_bars.columns):
         return 5
 
+    # Load calibrated thresholds (VC.5)
+    rb_cfg = _dcrd_config.get("rb_speed", {})
+    _high = high_threshold if high_threshold is not None else rb_cfg.get("p75", 3.0)
+    _slow = slow_threshold if slow_threshold is not None else rb_cfg.get("p25", 1.0)
+
     end_times = pd.to_datetime(range_bars["end_time"], utc=True)
     last_time = end_times.iloc[-1]
     window_start = last_time - pd.Timedelta(minutes=lookback_minutes)
 
     bars_in_window = (end_times >= window_start).sum()
 
-    if bars_in_window >= high_threshold:
+    if bars_in_window >= _high:
         return 10
-    if bars_in_window >= slow_threshold:
+    if bars_in_window >= _slow:
         return 5
     return 0
 

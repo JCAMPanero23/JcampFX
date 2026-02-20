@@ -58,6 +58,8 @@ app = dash.Dash(
     __name__,
     title="JcampFX Dashboard",
     suppress_callback_exceptions=True,
+    use_pages=True,
+    pages_folder=str(Path(__file__).parent / "pages"),
 )
 
 # ---------------------------------------------------------------------------
@@ -318,7 +320,7 @@ _tab2_layout = html.Div(
 # Main layout with tabs
 # ---------------------------------------------------------------------------
 
-app.layout = html.Div(
+_main_layout = html.Div(
     style={"backgroundColor": "#1a1a2e", "minHeight": "100vh", "fontFamily": "sans-serif"},
     children=[
         # Header
@@ -352,6 +354,13 @@ app.layout = html.Div(
         ),
     ],
 )
+
+
+# Register home page
+dash.register_page("home", path="/", layout=_main_layout)
+
+# Wrap in page_container for multi-page support
+app.layout = html.Div([dash.page_container])
 
 
 # ---------------------------------------------------------------------------
@@ -603,6 +612,7 @@ def _results_to_store(results) -> dict:
     dcrd_tl = results.dcrd_timeline
 
     return {
+        "run_id": getattr(results, "run_id", None),
         "trades": _rows_to_json(results.to_trade_log_df()),
         "equity": {
             "timestamps": [str(t) for t in eq.index] if eq is not None else [],
@@ -842,7 +852,7 @@ def _build_trade_table(store_data: dict) -> list:
     ]
     headers = [
         "Date", "Pair", "Strategy", "Dir", "CS",
-        "Entry", "Part.Exit", "Close", "Reason", "R-Mult", "PnL ($)",
+        "Entry", "Part.Exit", "Close", "Reason", "R-Mult", "PnL ($)", "Inspect",
     ]
 
     def _fmt(val, col):
@@ -892,10 +902,19 @@ def _build_trade_table(store_data: dict) -> list:
         "textAlign": "center", "borderBottom": "1px solid #222",
     }
 
+    # Extract run_id from store_data
+    run_id = store_data.get("run_id", "unknown")
+    
     header_row = html.Tr([html.Th(h, style=th_style) for h in headers])
     rows = [header_row]
-    for t in trades[:200]:  # cap at 200 rows for browser performance
+    for idx, t in enumerate(trades[:200]):  # cap at 200 rows for browser performance
         cells = [html.Td(_fmt(t.get(col), col), style=td_style) for col in columns]
+        # Add Inspect link cell
+        inspect_cell = html.Td(
+            dcc.Link("Inspect", href=f"/inspector?run={run_id}&trade={idx}"),
+            style=td_style,
+        )
+        cells.append(inspect_cell)
         rows.append(html.Tr(cells, style={"backgroundColor": _row_bg(t)}))
 
     return [html.Table(
@@ -939,6 +958,7 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
         try:
             results = BacktestResults.load(str(run_dirs[0]))
             store = _results_to_store(results)
+            store["run_id"] = run_dirs[0].name  # Set run_id from directory name
             s = store["summary"]
             status = (
                 f"Loaded: {run_dirs[0].name} | "
@@ -980,9 +1000,11 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
         results_dir.mkdir(parents=True, exist_ok=True)
         from datetime import datetime, timezone as _tz
         ts_tag = datetime.now(_tz.utc).strftime("%Y%m%d_%H%M%S")
-        results.save(str(results_dir / f"run_{ts_tag}"))
+        run_id = f"run_{ts_tag}"
+        results.save(str(results_dir / run_id))
 
         store = _results_to_store(results)
+        store["run_id"] = run_id  # Set run_id
         s = store["summary"]
         cycles_str = (
             f" | Cycles: {s['cycles_passed']}/{s['total_cycles']}"

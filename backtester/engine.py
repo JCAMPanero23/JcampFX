@@ -397,6 +397,12 @@ class BacktestEngine:
             initial_r_pips=initial_r_pips,
             composite_score=signal.composite_score,
             partial_exit_pct=signal.partial_exit_pct,
+            adx_at_entry=signal.adx_at_entry,
+            adx_slope_rising=signal.adx_slope_rising,
+            staircase_depth=signal.staircase_depth,
+            pullback_bar_idx=signal.pullback_bar_idx,
+            pullback_depth_pips=signal.pullback_depth_pips,
+            entry_bar_idx=signal.entry_bar_idx,
         )
         account.open_trade(trade)
 

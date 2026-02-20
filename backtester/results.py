@@ -309,6 +309,12 @@ def _df_to_trades(df: pd.DataFrame) -> list[BacktestTrade]:
             initial_r_pips=0.0,  # not stored in log
             composite_score=float(row.get("composite_score", 0)),
             partial_exit_pct=float(row.get("partial_exit_pct", 0)),
+            adx_at_entry=float(row["adx_at_entry"]) if not pd.isna(row.get("adx_at_entry")) else None,
+            adx_slope_rising=bool(row["adx_slope_rising"]) if not pd.isna(row.get("adx_slope_rising")) else None,
+            staircase_depth=int(float(row["staircase_depth"])) if not pd.isna(row.get("staircase_depth")) else None,
+            pullback_bar_idx=int(float(row["pullback_bar_idx"])) if not pd.isna(row.get("pullback_bar_idx")) else None,
+            pullback_depth_pips=float(row["pullback_depth_pips"]) if not pd.isna(row.get("pullback_depth_pips")) else None,
+            entry_bar_idx=int(float(row["entry_bar_idx"])) if not pd.isna(row.get("entry_bar_idx")) else None,
             phase="closed",
             partial_exit_price=float(row.get("partial_exit_price", 0) or 0),
             partial_exit_time=row.get("partial_exit_time"),

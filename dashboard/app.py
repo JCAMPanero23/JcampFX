@@ -360,7 +360,10 @@ _main_layout = html.Div(
 dash.register_page("home", path="/", layout=_main_layout)
 
 # Wrap in page_container for multi-page support
-app.layout = html.Div([dash.page_container])
+app.layout = html.Div([
+    dcc.Location(id="url", refresh=False),
+    dash.page_container,
+])
 
 
 # ---------------------------------------------------------------------------
@@ -911,7 +914,7 @@ def _build_trade_table(store_data: dict) -> list:
         cells = [html.Td(_fmt(t.get(col), col), style=td_style) for col in columns]
         # Add Inspect link cell
         inspect_cell = html.Td(
-            dcc.Link("Inspect", href=f"/inspector?run={run_id}&trade={idx}"),
+            dcc.Link("Inspect", href=f"/inspector?run={run_id}&trade={t['trade_id']}"),
             style=td_style,
         )
         cells.append(inspect_cell)

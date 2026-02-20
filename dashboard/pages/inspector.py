@@ -127,7 +127,7 @@ def load_inspector_view(search_query: str):
 
 
 @callback(
-    Output("url", "search", allow_duplicate=True),
+    Output("url", "pathname", allow_duplicate=True),
     [
         Input("inspector-back-btn", "n_clicks"),
     ],
@@ -136,7 +136,7 @@ def load_inspector_view(search_query: str):
 def navigate_back_to_cinema(n_clicks):
     """Return to Cinema tab (home page)."""
     if n_clicks > 0:
-        return ""  # Clear query string → goes to home page
+        return "/"  # Navigate to home page
     return dash.no_update
 
 

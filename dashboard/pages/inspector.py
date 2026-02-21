@@ -218,7 +218,7 @@ def _build_metadata_panel(ctx: dict) -> html.Div:
         html.Div([
             html.Span(f"Entry: {trade['entry_price']} @ {trade['entry_time']}", style={"margin-right": "20px"}),
             html.Span(f"SL: {trade['sl_price']}", style={"margin-right": "20px"}),
-            html.Span(f"TP: {trade['tp_price']}", style={"margin-right": "20px"}),
+            html.Span(f"TP: {trade.get('tp_price', 'N/A')}", style={"margin-right": "20px"}),
         ]),
         html.Hr(style={"margin": "10px 0"}),
         html.Div([

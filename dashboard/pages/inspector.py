@@ -71,7 +71,7 @@ layout = html.Div([
     ],
     prevent_initial_call=False,
 )
-def load_inspector_view(search_query: str):
+def load_inspector_view(search_query: str | None):
     """
     Parse URL parameters, load trade context, render metadata + chart.
     """
@@ -180,9 +180,9 @@ def navigate_prev_next_trade(prev_clicks, next_clicks, run_id, trade_id, all_tra
 # Helper Functions
 # ============================================================================
 
-def _parse_query_string(search: str) -> dict:
+def _parse_query_string(search: str | None) -> dict:
     """Parse URL query string like '?run=X&trade=Y' into dict."""
-    if not search or not search.startswith("?"):
+    if not search or not isinstance(search, str) or not search.startswith("?"):
         return {}
     params = {}
     for part in search[1:].split("&"):
@@ -311,20 +311,23 @@ def _build_inspector_chart(ctx: dict) -> go.Figure:
         fig.add_vline(x=close_local, line_color="red", line_width=2,
                       annotation_text="Close", annotation_position="top", row=1)
 
-    # Highlight staircase bars if TrendRider trade
-    if trade.get("strategy") == "TrendRider" and trade.get("pullback_bar_idx") is not None:
+    # Highlight staircase bars if TrendRider trade (only if debug fields exist)
+    if (trade.get("strategy") == "TrendRider" and
+        trade.get("pullback_bar_idx") is not None and
+        trade.get("entry_bar_idx") is not None and
+        trade.get("staircase_depth") is not None):
         pullback_abs_idx = trade["pullback_bar_idx"]
-        entry_abs_idx = trade.get("entry_bar_idx")
+        entry_abs_idx = trade["entry_bar_idx"]
+        staircase_depth = trade["staircase_depth"]
 
         # Find local indices for staircase
         # Staircase is: pullback_bar_idx - staircase_depth → pullback_bar_idx
-        staircase_depth = trade.get("staircase_depth", 5)
         staircase_start_abs = pullback_abs_idx - staircase_depth + 1
 
         # Map absolute indices to local indices
         # rb window starts at (entry_abs_idx - 20), so:
         # local = abs - (entry_abs_idx - 20) = abs - entry_abs_idx + 20
-        offset = entry_abs_idx - 20 if entry_abs_idx else 0
+        offset = entry_abs_idx - 20
         staircase_start_local = staircase_start_abs - offset
         pullback_local = pullback_abs_idx - offset
 

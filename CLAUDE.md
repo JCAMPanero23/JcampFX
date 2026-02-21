@@ -3,13 +3,17 @@
 ## Project Overview
 Regime-Adaptive Multi-Strategy Portfolio Engine built on Dynamic Composite Regime Detection (DCRD) with Range Bar Intelligence. Targets a $500 FP Markets ECN MT5 account.
 
-**Reference:** `JcampFX_PRD_v2.2.md` is the single source of truth for all system requirements.
+**References:**
+- `JcampFX_PRD_v2.2.md` — Single source of truth for all system requirements
+- `Documentation/next_session_plan.md` — Active development plan with pending tasks and analysis
 
 ## Repository Structure
 ```
 D:\JcampFX\
 ├── JcampFX_PRD_v2.2.md          # Product Requirements Document (current)
 ├── JcampFX_PRD_v2.1.docx.md     # Previous version (archived)
+├── Documentation\
+│   └── next_session_plan.md     # Active development plan (tasks, analysis, decisions)
 ├── MT5_EAs\
 │   ├── Experts\                   # MQL5 Expert Advisors (symlinked from MT5)
 │   └── Include\
@@ -32,6 +36,7 @@ MT5 Terminal: `C:\Users\jcamp\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF
 - **DCRD Engine:** 4H Structural (0–100) + 1H Dynamic Modifier (−15 to +15) + Range Bar Intelligence (0–20) → CompositeScore (0–100)
 - **Range Bars:** 20 pips (majors), 25–30 pips (JPY pairs) — upgraded from 10-pip in v2.2
 - **Strategies:** TrendRider (CS 70–100) | BreakoutRider (CS 30–70) | RangeRider (CS 0–30)
+  - **PENDING CHANGE:** Proposed thresholds CS 85/40/40 to improve diversification (see next_session_plan.md Task 0)
 - **Exit System:** Partial exit at 1.5R (60/70/75/80% based on CS at entry) + Dynamic Chandelier SL on runner
 - **Regime Deterioration:** Force-close runner if CS drops >40 pts from entry-time score
 - **Risk:** Dynamic 1–3% per trade; skip if <0.8%. Max 2 concurrent positions until equity >$1,000
@@ -142,31 +147,24 @@ MT5 Terminal: `C:\Users\jcamp\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF
 
 ---
 
-## Next Session Plan: Backtest Playback / Debug Visualizer
+## Next Session Plan
 
-Build a **Cinema-style bar-by-bar playback** that lets us inspect what the backtest engine saw at each signal:
+See `Documentation/next_session_plan.md` for detailed task breakdown.
 
-**Proposed `backtester/playback.py`** (or extend the Cinema tab in dashboard):
-1. Load a backtest run's trades.parquet + range bar data for a given pair
-2. For each trade, show:
-   - The 20 Range Bars leading up to entry (with staircase highlighted)
-   - Entry bar, pullback bar, resumption bar (color-coded)
-   - DCRD composite score at entry time
-   - ADX value at entry time
-   - Whether trade was a win (reached 1.5R) or loss (SL hit)
-3. Filter view: show only LOSING trades in specific bad months (Oct-24, Jul-25)
-4. Let us visually inspect whether staircase pattern looks like a real trend or a false signal
+**Summary of Pending Tasks:**
+1. **Task 0 (NEW - Quick Win):** Adjust DCRD regime thresholds (CS 85/40/40) to improve strategy diversification
+   - BreakoutRider gets 2.6x more regime time (22.3% → 58.5%)
+   - TrendRider becomes more selective (77.7% → 41.4%)
+   - Low-risk config-only change, easily reversible
+2. **Task 1 (Priority 1):** Add Price Level Cooldown to prevent "revenge trading" at same price
+3. **Task 2 (Priority 2):** Build batch analysis tool to identify losing trade patterns
+4. **Task 3 (Priority 3):** Add TrendRider entry quality filters based on analysis results
 
-**Key questions to answer visually:**
-- Do losing trades have "weaker" staircase patterns than winning trades?
-- Are losing trades entering near obvious support/resistance levels?
-- Is the pullback bar unusually large (deeper pullback = trend might be reversing)?
-- Are winning months characterized by a particular DCRD score range?
-
-**Implementation priority:**
-1. Add a `generate_signal_snapshots()` function to extract per-trade context (20-bar window, CS, ADX)
-2. Export as JSON/CSV for the Cinema dashboard tab to render
-3. Add a "Trade Inspector" view in the dashboard: click a trade → see its bar context
+**Critical Findings (Feb 2026):**
+- TrendRider dominance (290/292 trades) is data-driven, not a bug
+- DCRD scores ranged 30-100 during 2024-2025 (never <30 = Ranging regime)
+- BreakoutRider conditions too strict (only 2 trades in 2 years)
+- Adjusting thresholds is simpler than relaxing BreakoutRider conditions
 
 ## Development Phases
 | Phase | Focus | Status | Gate |

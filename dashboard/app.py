@@ -1010,9 +1010,9 @@ def _build_trade_table(store_data: dict) -> list:
             except (TypeError, ValueError):
                 return str(val)
         if col == "regime":
-            # Format regime as capitalized first letter (T/B/R for Trending/Breakout/Ranging)
+            # Format regime as full capitalized text
             if val and isinstance(val, str):
-                return val[0].upper()
+                return val.upper()  # Full text: TRENDING, BREAKOUT, RANGING, TRANSITIONAL
             return "\u2014"
         if col == "entry_time":
             return str(val)[:16]

@@ -36,10 +36,10 @@ class BacktestTrade:
 
     # DCRD frozen at entry (VE.7)
     composite_score: float
-    regime: str = "transitional"  # "trending" | "breakout" | "ranging" | "transitional"
     partial_exit_pct: float  # 0.60 | 0.70 | 0.75 | 0.80
 
     # DCRD layer breakdown (stored for accurate Trade Inspector display)
+    regime: str = "transitional"  # "trending" | "breakout" | "ranging" | "transitional"
     layer1_structural: float = 0.0
     layer2_modifier: float = 0.0
     layer3_rb_intelligence: float = 0.0

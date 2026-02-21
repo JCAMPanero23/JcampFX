@@ -310,8 +310,9 @@ _tab2_layout = html.Div(
             html.Div(id="cinema-trade-table", style={"overflowX": "auto"}),
         ]),
 
-        # Hidden store for results
+        # Hidden stores
         dcc.Store(id="cinema-results-store"),
+        dcc.Store(id="inspected-trades-store", data=[]),  # Track inspected trade IDs
     ],
 )
 
@@ -364,6 +365,37 @@ app.layout = html.Div([
     dcc.Location(id="url", refresh=False),
     dash.page_container,
 ])
+
+
+# ---------------------------------------------------------------------------
+# URL-based tab switching
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("main-tabs", "value"),
+    Input("url", "search"),
+    prevent_initial_call=False,
+)
+def switch_tab_from_url(search_query):
+    """Set active tab based on URL query parameter ?tab=cinema or ?tab=rb."""
+    if not search_query:
+        return "tab-rb"  # Default tab
+
+    # Parse query string
+    if search_query.startswith("?"):
+        params = {}
+        for part in search_query[1:].split("&"):
+            if "=" in part:
+                key, val = part.split("=", 1)
+                params[key] = val
+
+        tab_param = params.get("tab", "")
+        if tab_param == "cinema":
+            return "tab-cinema"
+        elif tab_param == "rb":
+            return "tab-rb"
+
+    return dash.no_update
 
 
 # ---------------------------------------------------------------------------
@@ -842,7 +874,7 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     return fig
 
 
-def _build_trade_table(store_data: dict) -> list:
+def _build_trade_table(store_data: dict, inspected_trades: list = None) -> list:
     """Build HTML trade log table from store data."""
     trades = store_data.get("trades", [])
     if not trades:
@@ -907,14 +939,29 @@ def _build_trade_table(store_data: dict) -> list:
 
     # Extract run_id from store_data
     run_id = store_data.get("run_id", "unknown")
-    
+    inspected_set = set(inspected_trades or [])
+
     header_row = html.Tr([html.Th(h, style=th_style) for h in headers])
     rows = [header_row]
     for idx, t in enumerate(trades[:200]):  # cap at 200 rows for browser performance
         cells = [html.Td(_fmt(t.get(col), col), style=td_style) for col in columns]
-        # Add Inspect link cell
+
+        # Add Inspect link cell (opens in new tab)
+        trade_id = t['trade_id']
+        is_inspected = trade_id in inspected_set
+
+        inspect_link_text = "✓ Inspected" if is_inspected else "Inspect"
+        inspect_link_color = "#28a745" if is_inspected else "#4a90d9"
+
         inspect_cell = html.Td(
-            dcc.Link("Inspect", href=f"/inspector?run={run_id}&trade={t['trade_id']}"),
+            html.A(
+                inspect_link_text,
+                href=f"/inspector?run={run_id}&trade={trade_id}",
+                target="_blank",
+                id=f"inspect-link-{trade_id}",
+                className="inspect-link",
+                style={"color": inspect_link_color, "textDecoration": "none", "fontWeight": "bold" if is_inspected else "normal"},
+            ),
             style=td_style,
         )
         cells.append(inspect_cell)
@@ -925,6 +972,25 @@ def _build_trade_table(store_data: dict) -> list:
         style={"width": "100%", "borderCollapse": "collapse",
                "backgroundColor": "#16213e", "borderRadius": "4px"},
     )]
+
+
+# ---------------------------------------------------------------------------
+# Auto-load last run when Cinema tab is activated
+# ---------------------------------------------------------------------------
+
+@callback(
+    Output("cinema-load-btn", "n_clicks"),
+    Input("main-tabs", "value"),
+    State("cinema-results-store", "data"),
+    State("cinema-load-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def auto_load_on_cinema_tab(tab_value, current_data, current_clicks):
+    """Automatically trigger 'Load Last Run' when Cinema tab is opened with no data."""
+    if tab_value == "tab-cinema" and not current_data:
+        # Increment n_clicks to trigger the load callback
+        return (current_clicks or 0) + 1
+    return dash.no_update
 
 
 # ---------------------------------------------------------------------------
@@ -1036,8 +1102,9 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
     Output("cinema-trade-table", "children"),
     Input("cinema-results-store", "data"),
     Input("cinema-rb-pair", "value"),
+    Input("inspected-trades-store", "data"),
 )
-def cinema_update_charts(store_data, rb_pair):
+def cinema_update_charts(store_data, rb_pair, inspected_trades):
     """Populate all Cinema panels from the results store."""
     if not store_data:
         empty = _empty_figure("Run a backtest or load a previous run")
@@ -1049,9 +1116,51 @@ def cinema_update_charts(store_data, rb_pair):
     equity_fig = _build_equity_figure(store_data)
     dcrd_fig = _build_dcrd_figure(store_data)
     rb_fig = _build_rb_figure(store_data, rb_pair or PAIRS[0])
-    trade_tbl = _build_trade_table(store_data)
+    trade_tbl = _build_trade_table(store_data, inspected_trades)
 
     return equity_fig, dcrd_fig, rb_fig, trade_tbl
+
+
+# ---------------------------------------------------------------------------
+# Track inspected trades with click handlers
+# ---------------------------------------------------------------------------
+
+app.clientside_callback(
+    """
+    function(tableChildren) {
+        // Wait a bit for DOM to render
+        setTimeout(function() {
+            const links = document.querySelectorAll('.inspect-link');
+            links.forEach(link => {
+                // Clone to remove old listeners
+                const newLink = link.cloneNode(true);
+                link.parentNode.replaceChild(newLink, link);
+
+                // Add new click listener
+                newLink.addEventListener('click', function() {
+                    const tradeId = this.id.replace('inspect-link-', '');
+                    const inspected = JSON.parse(localStorage.getItem('inspectedTrades') || '[]');
+
+                    if (!inspected.includes(tradeId)) {
+                        inspected.push(tradeId);
+                        localStorage.setItem('inspectedTrades', JSON.stringify(inspected));
+                    }
+
+                    // Update visually immediately
+                    this.textContent = '✓ Inspected';
+                    this.style.color = '#28a745';
+                    this.style.fontWeight = 'bold';
+                });
+            });
+        }, 100);
+
+        // Return current inspected list
+        return JSON.parse(localStorage.getItem('inspectedTrades') || '[]');
+    }
+    """,
+    Output("inspected-trades-store", "data"),
+    Input("cinema-trade-table", "children"),
+)
 
 
 # ---------------------------------------------------------------------------

@@ -39,15 +39,17 @@ def get_trade_context(
     run_dir: str,
     trade_id: str,
     context_bars: int = 20,
+    bars_after_close: int = 5,
 ) -> dict:
     """
     Load complete per-trade context for the Trade Inspector.
 
     Parameters
     ----------
-    run_dir      : Path to backtest run directory (contains trades.parquet, dcrd_timeline.parquet)
-    trade_id     : 8-char trade ID from trades.parquet
-    context_bars : Number of Range Bars to include BEFORE the entry bar
+    run_dir          : Path to backtest run directory (contains trades.parquet, dcrd_timeline.parquet)
+    trade_id         : 8-char trade ID from trades.parquet
+    context_bars     : Number of Range Bars to include BEFORE the entry bar
+    bars_after_close : Number of Range Bars to include AFTER the close bar
 
     Returns
     -------
@@ -108,9 +110,9 @@ def get_trade_context(
         if pe_mask.any():
             partial_exit_abs_idx = int(all_rb[pe_mask].index[0])
 
-    # Slice window: context_bars before entry → close bar (inclusive)
+    # Slice window: context_bars before entry → close bar + bars_after_close (inclusive)
     start_abs = max(0, entry_abs_idx - context_bars)
-    end_abs = close_abs_idx + 1  # inclusive
+    end_abs = min(len(all_rb), close_abs_idx + 1 + bars_after_close)  # inclusive, capped at end
     rb_window = all_rb.iloc[start_abs:end_abs].reset_index(drop=True)
 
     # Local indices within window

@@ -143,6 +143,13 @@ class BacktestEngine:
         end           : Inclusive end timestamp (UTC)
         initial_equity: Starting account equity in USD
         """
+        log.info("=" * 60)
+        log.info("BacktestEngine.run() called with:")
+        log.info(f"  start: {start} (type: {type(start)})")
+        log.info(f"  end: {end} (type: {type(end)})")
+        log.info(f"  pairs: {self.pairs}")
+        log.info("=" * 60)
+
         account = BacktestAccount(initial_equity=initial_equity)
         dcrd_records: list[dict] = []
 
@@ -151,10 +158,15 @@ class BacktestEngine:
         for pair in self.pairs:
             rb = self._rb_cache.get(pair)
             if rb is None or rb.empty:
+                log.warning(f"  {pair}: No range bar data loaded")
                 continue
             # Filter to window
             mask = (rb["end_time"] >= start) & (rb["end_time"] <= end)
             filtered = rb[mask].reset_index(drop=True)
+            log.info(f"  {pair}: {len(rb)} total bars, {len(filtered)} in [{start.date()}, {end.date()}] window")
+            if len(filtered) > 0:
+                log.info(f"    First bar: {filtered['end_time'].iloc[0]}")
+                log.info(f"    Last bar: {filtered['end_time'].iloc[-1]}")
             for idx, row in filtered.iterrows():
                 heapq.heappush(heap, (row["end_time"], pair, int(idx), row))
 
@@ -179,7 +191,7 @@ class BacktestEngine:
 
             # Build DCRD inputs first (needed for regime deterioration in exit checks)
             rb_window_df = pd.DataFrame(rb_window_cache[pair])
-            composite_score, regime = self._compute_dcrd(pair, end_time, rb_window_df)
+            composite_score, regime, dcrd_breakdown = self._compute_dcrd(pair, end_time, rb_window_df)
 
             # 1. Check exits for all open trades on this pair
             open_ids_before = {t.trade_id for t in account.open_trades}
@@ -237,7 +249,7 @@ class BacktestEngine:
 
             # 6. Open trade if signal is valid and unblocked
             if signal is not None and not signal.is_blocked and signal.lot_size > 0:
-                self._open_trade(signal, bar, account, end_time)
+                self._open_trade(signal, bar, account, end_time, dcrd_breakdown)
 
         # End of replay: close any remaining open trades at their own pair's last price
         for trade in list(account.open_trades):
@@ -379,11 +391,17 @@ class BacktestEngine:
         bar: pd.Series,
         account: BacktestAccount,
         timestamp: pd.Timestamp,
+        dcrd_breakdown: dict | None = None,
     ) -> None:
         """Create a BacktestTrade from a Signal and register it with the account."""
         pip = PIP_SIZE.get(signal.pair, 0.0001)
         entry_price = apply_entry_slippage(signal.entry, signal.direction, signal.pair)
         initial_r_pips = abs(entry_price - signal.sl) / pip
+
+        # Extract L1/L2/L3 from DCRD breakdown (if available)
+        layer1 = dcrd_breakdown.get("layer1_structural", 0.0) if dcrd_breakdown else 0.0
+        layer2 = dcrd_breakdown.get("layer2_modifier", 0.0) if dcrd_breakdown else 0.0
+        layer3 = dcrd_breakdown.get("layer3_rb_intelligence", 0.0) if dcrd_breakdown else 0.0
 
         trade = BacktestTrade(
             trade_id=str(uuid.uuid4())[:8],
@@ -396,6 +414,9 @@ class BacktestEngine:
             lot_size=signal.lot_size,
             initial_r_pips=initial_r_pips,
             composite_score=signal.composite_score,
+            layer1_structural=layer1,
+            layer2_modifier=layer2,
+            layer3_rb_intelligence=layer3,
             partial_exit_pct=signal.partial_exit_pct,
             adx_at_entry=signal.adx_at_entry,
             adx_slope_rising=signal.adx_slope_rising,
@@ -415,36 +436,41 @@ class BacktestEngine:
         pair: str,
         up_to_time: pd.Timestamp,
         rb_window: pd.DataFrame,
-    ) -> tuple[float, str]:
+    ) -> tuple[float, str, dict]:
         """
-        Return (composite_score, regime) for this pair at up_to_time.
-        Falls back to (50.0, 'transitional') if OHLC data unavailable.
+        Return (composite_score, regime, breakdown_dict) for this pair at up_to_time.
+        Falls back to (50.0, 'transitional', {}) if OHLC data unavailable.
+
+        breakdown_dict contains: layer1_structural, layer2_modifier, layer3_rb_intelligence
         """
         if not self._dcrd_available:
             regime = self._dcrd.get_regime(_DCRD_FALLBACK_SCORE)
-            return _DCRD_FALLBACK_SCORE, regime
+            return _DCRD_FALLBACK_SCORE, regime, {}
 
         ohlc_4h = self._get_ohlc_window(pair, "4h", up_to_time)
         ohlc_1h = self._get_ohlc_window(pair, "1h", up_to_time)
 
         if ohlc_4h is None or len(ohlc_4h) < 30:
             regime = self._dcrd.get_regime(_DCRD_FALLBACK_SCORE)
-            return _DCRD_FALLBACK_SCORE, regime
+            return _DCRD_FALLBACK_SCORE, regime, {}
 
         try:
-            score, regime = self._dcrd.score(
+            # Use score_components() to get full breakdown including L1/L2/L3
+            breakdown = self._dcrd.score_components(
                 ohlc_4h=ohlc_4h,
                 ohlc_1h=ohlc_1h,
                 range_bars=rb_window,
                 csm_data=None,  # CSM not used in backtest (requires live 9-pair data)
                 pair=pair,
             )
+            score = breakdown.get("composite_score", _DCRD_FALLBACK_SCORE)
+            regime = breakdown.get("regime", "transitional")
+            return score, regime, breakdown
         except Exception as exc:
             log.debug("DCRD scoring error for %s at %s: %s", pair, up_to_time, exc)
             score = _DCRD_FALLBACK_SCORE
             regime = self._dcrd.get_regime(score)
-
-        return score, regime
+            return score, regime, {}
 
     # ------------------------------------------------------------------
     # Data loading helpers

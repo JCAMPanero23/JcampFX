@@ -38,6 +38,11 @@ class BacktestTrade:
     composite_score: float
     partial_exit_pct: float  # 0.60 | 0.70 | 0.75 | 0.80
 
+    # DCRD layer breakdown (stored for accurate Trade Inspector display)
+    layer1_structural: float = 0.0
+    layer2_modifier: float = 0.0
+    layer3_rb_intelligence: float = 0.0
+
     # Trade state machine
     phase: str = "open"     # "open" | "runner" | "closed"
 
@@ -87,6 +92,9 @@ class BacktestTrade:
             "sl_price": self.sl_price,
             "lot_size": self.lot_size,
             "composite_score": self.composite_score,
+            "layer1_structural": self.layer1_structural,
+            "layer2_modifier": self.layer2_modifier,
+            "layer3_rb_intelligence": self.layer3_rb_intelligence,
             "partial_exit_pct": self.partial_exit_pct,
             "partial_exit_price": self.partial_exit_price,
             "partial_exit_time": self.partial_exit_time,

@@ -772,6 +772,11 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     # Get trade time range for this pair to determine which Range Bars to show
     pair_trades = [t for t in store_data.get("trades", []) if t.get("pair") == rb_pair]
 
+    # Ensure datetime columns are properly typed BEFORE filtering
+    rb_df_full = rb_df_full.copy()
+    rb_df_full["start_time"] = pd.to_datetime(rb_df_full["start_time"], utc=True)
+    rb_df_full["end_time"] = pd.to_datetime(rb_df_full["end_time"], utc=True)
+
     if pair_trades:
         # Find earliest and latest trade times
         trade_times = []
@@ -780,33 +785,52 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
                 ts_str = t.get(time_field)
                 if ts_str:
                     try:
-                        trade_times.append(pd.Timestamp(ts_str, tz="UTC"))
-                    except:
-                        pass
+                        ts = pd.Timestamp(ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.tz_localize("UTC")
+                        trade_times.append(ts)
+                    except Exception as e:
+                        log.debug(f"Failed to parse {time_field}={ts_str}: {e}")
 
         if trade_times:
+            # Ensure min/max are tz-aware Timestamps (convert if needed, don't double-assign tz)
             min_trade_time = min(trade_times)
             max_trade_time = max(trade_times)
+            if min_trade_time.tzinfo is None:
+                min_trade_time = min_trade_time.tz_localize('UTC')
+            if max_trade_time.tzinfo is None:
+                max_trade_time = max_trade_time.tz_localize('UTC')
 
-            # Filter Range Bars to cover trade time range with some padding
-            rb_df_full["start_time"] = pd.to_datetime(rb_df_full["start_time"], utc=True)
-            rb_df_full["end_time"] = pd.to_datetime(rb_df_full["end_time"], utc=True)
+            log.info(f"Range Bar chart for {rb_pair}: Trade time range {min_trade_time} to {max_trade_time}")
 
-            # Get bars within trade time range
-            mask = (rb_df_full["end_time"] >= min_trade_time) & (rb_df_full["start_time"] <= max_trade_time)
-            rb_df = rb_df_full[mask].copy()
+            # Add padding: 50 bars before and after trade range
+            # Use DataFrame column directly (already tz-aware from earlier conversion)
+            before_idx = (rb_df_full["end_time"] < min_trade_time).sum()
+            after_idx = (rb_df_full["end_time"] <= max_trade_time).sum()
 
-            # If we have too many bars, take a reasonable window around trades
-            if len(rb_df) > 1000:
-                rb_df = rb_df.tail(1000).copy()
-            elif len(rb_df) == 0:
-                # No bars in trade range, fall back to last 500
+            start_idx = max(0, before_idx - 50)
+            end_idx = min(len(rb_df_full), after_idx + 50)
+
+            rb_df = rb_df_full.iloc[start_idx:end_idx].copy()
+            log.info(f"  Showing {len(rb_df)} bars (indices {start_idx} to {end_idx})")
+
+            # If still too many bars, keep centered window
+            if len(rb_df) > 1500:
+                center_idx = len(rb_df) // 2
+                rb_df = rb_df.iloc[max(0, center_idx - 750):center_idx + 750].copy()
+                log.info(f"  Trimmed to {len(rb_df)} bars (centered on trades)")
+
+            # Warn if no bars found
+            if len(rb_df) == 0:
+                log.warning(f"  No Range Bars found for {rb_pair} in trade time range - showing last 500")
                 rb_df = rb_df_full.tail(500).copy()
         else:
             # No valid trade times, show last 500 bars
+            log.info(f"Range Bar chart for {rb_pair}: No valid trade times, showing last 500")
             rb_df = rb_df_full.tail(500).copy()
     else:
         # No trades for this pair, show last 500 bars
+        log.info(f"Range Bar chart for {rb_pair}: No trades, showing last 500")
         rb_df = rb_df_full.tail(500).copy()
 
     rb_df = rb_df.reset_index(drop=True)
@@ -830,16 +854,38 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     # Get time window for displayed Range Bars
     rb_end_times = pd.to_datetime(rb_df["end_time"], utc=True)
 
-    def _ts_to_x(ts_str):
-        """Map timestamp to RB x-index."""
+    # Ensure min/max are tz-aware (they should already be UTC from pd.to_datetime with utc=True)
+    rb_time_min = rb_end_times.min()
+    rb_time_max = rb_end_times.max()
+    # Handle edge case where min/max might lose timezone info
+    if hasattr(rb_time_min, 'tzinfo') and rb_time_min.tzinfo is None:
+        rb_time_min = rb_time_min.tz_localize('UTC')
+    if hasattr(rb_time_max, 'tzinfo') and rb_time_max.tzinfo is None:
+        rb_time_max = rb_time_max.tz_localize('UTC')
+
+    skipped_markers = []
+
+    def _ts_to_x(ts_str, marker_type="trade"):
+        """Map timestamp to RB x-index. Returns None if timestamp is outside Range Bar window."""
         if not ts_str:
             return None
         try:
             ts = pd.Timestamp(ts_str)
             if ts.tzinfo is None:
                 ts = ts.tz_localize("UTC")
+            else:
+                # Ensure it's UTC (convert if needed)
+                ts = ts.tz_convert("UTC")
+
+            # Check if timestamp is within Range Bar window (with 1-day tolerance)
+            tolerance = pd.Timedelta(days=1)
+            if ts < (rb_time_min - tolerance) or ts > (rb_time_max + tolerance):
+                skipped_markers.append((marker_type, ts_str, ts))
+                return None
+
             return int((rb_end_times - ts).abs().argmin())
-        except Exception:
+        except Exception as e:
+            log.debug(f"Failed to map {marker_type} timestamp {ts_str}: {e}")
             return None
 
     # Collect marker coordinates
@@ -851,7 +897,7 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     for t in pair_trades:
         strategy = t.get("strategy", "")
 
-        ex = _ts_to_x(t.get("entry_time"))
+        ex = _ts_to_x(t.get("entry_time"), marker_type="entry")
         if ex is not None:
             entry_x.append(ex)
             entry_y.append(t.get("entry_price"))
@@ -859,19 +905,28 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
                 f"{strategy}<br>Entry: {t.get('entry_price')}<br>Dir: {t.get('direction')}"
             )
 
-        pe_x = _ts_to_x(t.get("partial_exit_time"))
+        pe_x = _ts_to_x(t.get("partial_exit_time"), marker_type="partial_exit")
         if pe_x is not None and t.get("partial_exit_price"):
             partial_x.append(pe_x)
             partial_y.append(t.get("partial_exit_price"))
             partial_text.append(f"1.5R partial: {t.get('partial_exit_price')}")
 
-        cx = _ts_to_x(t.get("close_time"))
+        cx = _ts_to_x(t.get("close_time"), marker_type="close")
         if cx is not None and t.get("close_price"):
             close_x.append(cx)
             close_y.append(t.get("close_price"))
             close_text.append(
                 f"Close ({t.get('close_reason')})<br>R: {t.get('r_multiple_total', 0):.2f}"
             )
+
+    # Log skipped markers
+    if skipped_markers:
+        log.warning(f"Skipped {len(skipped_markers)} trade markers for {rb_pair} (outside Range Bar window):")
+        log.warning(f"  Range Bar window: {rb_time_min} to {rb_time_max}")
+        for marker_type, ts_str, ts in skipped_markers[:5]:  # Show first 5
+            log.warning(f"    {marker_type}: {ts}")
+        if len(skipped_markers) > 5:
+            log.warning(f"    ... and {len(skipped_markers) - 5} more")
 
     if entry_x:
         fig.add_trace(go.Scatter(
@@ -1079,9 +1134,19 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
     # cinema-run-btn triggered
     if not pairs:
         return None, "Select at least one pair before running."
+
+    # DEBUG: Log what dates we received
+    log.info("=" * 60)
+    log.info("BACKTEST RUN - Date inputs received:")
+    log.info(f"  start_date (raw): {start_date} (type: {type(start_date)})")
+    log.info(f"  end_date (raw): {end_date} (type: {type(end_date)})")
+
     try:
         start = pd.Timestamp(start_date, tz="UTC")
         end = pd.Timestamp(end_date, tz="UTC")
+        log.info(f"  start (parsed): {start}")
+        log.info(f"  end (parsed): {end}")
+        log.info("=" * 60)
     except Exception as e:
         return None, f"Invalid date range: {e}"
 

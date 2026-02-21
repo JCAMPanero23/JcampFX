@@ -138,6 +138,24 @@ def get_trade_context(
     # --- Re-compute DCRD layer breakdown at entry time ---
     dcrd_at_entry = _recompute_dcrd_at_entry(pair, entry_time, rb_window, entry_local)
 
+    # IMPORTANT: Override composite_score AND L1/L2/L3 with STORED values from the trade
+    # The recomputation can differ due to missing anti-flip state or incomplete data
+    # The stored values are what were actually used for the entry decision
+    if "composite_score" in trade_row and trade_row["composite_score"] is not None:
+        dcrd_at_entry["composite_score"] = float(trade_row["composite_score"])
+        # Also update regime based on stored score
+        from src.dcrd.dcrd_engine import DCRDEngine
+        temp_engine = DCRDEngine()
+        dcrd_at_entry["regime"] = temp_engine.get_regime(dcrd_at_entry["composite_score"])
+
+    # Use stored L1/L2/L3 if available (v2.2.1+)
+    if "layer1_structural" in trade_row and trade_row["layer1_structural"] is not None:
+        dcrd_at_entry["layer1_structural"] = float(trade_row["layer1_structural"])
+    if "layer2_modifier" in trade_row and trade_row["layer2_modifier"] is not None:
+        dcrd_at_entry["layer2_modifier"] = float(trade_row["layer2_modifier"])
+    if "layer3_rb_intelligence" in trade_row and trade_row["layer3_rb_intelligence"] is not None:
+        dcrd_at_entry["layer3_rb_intelligence"] = float(trade_row["layer3_rb_intelligence"])
+
     return {
         "trade": trade_row,
         "range_bars": rb_window,

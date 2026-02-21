@@ -246,7 +246,8 @@ _tab2_layout = html.Div(
                             {"label": " Single Run", "value": "single"},
                         ],
                         value="single",
-                        style={"color": "#ccc", "fontSize": "13px"},
+                        inputStyle={"marginRight": "4px"},
+                        labelStyle={"color": "#fff", "fontSize": "13px", "display": "block", "marginBottom": "4px"},
                         inline=False,
                     ),
                 ]),
@@ -308,11 +309,10 @@ _tab2_layout = html.Div(
         html.Div([
             html.H4("Trade Log", style={"color": "#aaa", "fontSize": "13px", "margin": "0 0 4px 0"}),
             html.Div(id="cinema-trade-table", style={"overflowX": "auto"}),
-        ]),
+        ], id="trade-table-container"),
 
         # Hidden stores
         dcc.Store(id="cinema-results-store"),
-        dcc.Store(id="inspected-trades-store", data=[]),  # Track inspected trade IDs
     ],
 )
 
@@ -765,11 +765,51 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     bar_pips = RANGE_BAR_PIPS.get(rb_pair, 10)
     pip_size = PIP_SIZE.get(rb_pair, 0.0001)
 
-    rb_df = _try_load_range_bars(rb_pair, bar_pips)
-    if rb_df is None or rb_df.empty:
+    rb_df_full = _try_load_range_bars(rb_pair, bar_pips)
+    if rb_df_full is None or rb_df_full.empty:
         return _empty_figure(f"No Range Bar cache for {rb_pair}\nRun data fetcher first")
 
-    rb_df = rb_df.tail(500).copy().reset_index(drop=True)
+    # Get trade time range for this pair to determine which Range Bars to show
+    pair_trades = [t for t in store_data.get("trades", []) if t.get("pair") == rb_pair]
+
+    if pair_trades:
+        # Find earliest and latest trade times
+        trade_times = []
+        for t in pair_trades:
+            for time_field in ["entry_time", "partial_exit_time", "close_time"]:
+                ts_str = t.get(time_field)
+                if ts_str:
+                    try:
+                        trade_times.append(pd.Timestamp(ts_str, tz="UTC"))
+                    except:
+                        pass
+
+        if trade_times:
+            min_trade_time = min(trade_times)
+            max_trade_time = max(trade_times)
+
+            # Filter Range Bars to cover trade time range with some padding
+            rb_df_full["start_time"] = pd.to_datetime(rb_df_full["start_time"], utc=True)
+            rb_df_full["end_time"] = pd.to_datetime(rb_df_full["end_time"], utc=True)
+
+            # Get bars within trade time range
+            mask = (rb_df_full["end_time"] >= min_trade_time) & (rb_df_full["start_time"] <= max_trade_time)
+            rb_df = rb_df_full[mask].copy()
+
+            # If we have too many bars, take a reasonable window around trades
+            if len(rb_df) > 1000:
+                rb_df = rb_df.tail(1000).copy()
+            elif len(rb_df) == 0:
+                # No bars in trade range, fall back to last 500
+                rb_df = rb_df_full.tail(500).copy()
+        else:
+            # No valid trade times, show last 500 bars
+            rb_df = rb_df_full.tail(500).copy()
+    else:
+        # No trades for this pair, show last 500 bars
+        rb_df = rb_df_full.tail(500).copy()
+
+    rb_df = rb_df.reset_index(drop=True)
     x_rb = list(range(len(rb_df)))
 
     tick_step = max(1, len(rb_df) // 20)
@@ -787,10 +827,11 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
         whiskerwidth=0,
     ))
 
-    # Helper: map timestamp string to nearest RB x index
+    # Get time window for displayed Range Bars
     rb_end_times = pd.to_datetime(rb_df["end_time"], utc=True)
 
     def _ts_to_x(ts_str):
+        """Map timestamp to RB x-index."""
         if not ts_str:
             return None
         try:
@@ -874,7 +915,7 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
     return fig
 
 
-def _build_trade_table(store_data: dict, inspected_trades: list = None) -> list:
+def _build_trade_table(store_data: dict) -> list:
     """Build HTML trade log table from store data."""
     trades = store_data.get("trades", [])
     if not trades:
@@ -939,7 +980,6 @@ def _build_trade_table(store_data: dict, inspected_trades: list = None) -> list:
 
     # Extract run_id from store_data
     run_id = store_data.get("run_id", "unknown")
-    inspected_set = set(inspected_trades or [])
 
     header_row = html.Tr([html.Th(h, style=th_style) for h in headers])
     rows = [header_row]
@@ -948,19 +988,15 @@ def _build_trade_table(store_data: dict, inspected_trades: list = None) -> list:
 
         # Add Inspect link cell (opens in new tab)
         trade_id = t['trade_id']
-        is_inspected = trade_id in inspected_set
-
-        inspect_link_text = "✓ Inspected" if is_inspected else "Inspect"
-        inspect_link_color = "#28a745" if is_inspected else "#4a90d9"
 
         inspect_cell = html.Td(
             html.A(
-                inspect_link_text,
+                "Inspect",
                 href=f"/inspector?run={run_id}&trade={trade_id}",
                 target="_blank",
-                id=f"inspect-link-{trade_id}",
                 className="inspect-link",
-                style={"color": inspect_link_color, "textDecoration": "none", "fontWeight": "bold" if is_inspected else "normal"},
+                **{"data-trade-id": trade_id},
+                style={"color": "#4a90d9", "textDecoration": "none"},
             ),
             style=td_style,
         )
@@ -1102,9 +1138,8 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
     Output("cinema-trade-table", "children"),
     Input("cinema-results-store", "data"),
     Input("cinema-rb-pair", "value"),
-    Input("inspected-trades-store", "data"),
 )
-def cinema_update_charts(store_data, rb_pair, inspected_trades):
+def cinema_update_charts(store_data, rb_pair):
     """Populate all Cinema panels from the results store."""
     if not store_data:
         empty = _empty_figure("Run a backtest or load a previous run")
@@ -1116,13 +1151,13 @@ def cinema_update_charts(store_data, rb_pair, inspected_trades):
     equity_fig = _build_equity_figure(store_data)
     dcrd_fig = _build_dcrd_figure(store_data)
     rb_fig = _build_rb_figure(store_data, rb_pair or PAIRS[0])
-    trade_tbl = _build_trade_table(store_data, inspected_trades)
+    trade_tbl = _build_trade_table(store_data)
 
     return equity_fig, dcrd_fig, rb_fig, trade_tbl
 
 
 # ---------------------------------------------------------------------------
-# Track inspected trades with click handlers
+# Track inspected trades with click handlers (client-side only, no circular deps)
 # ---------------------------------------------------------------------------
 
 app.clientside_callback(
@@ -1130,17 +1165,27 @@ app.clientside_callback(
     function(tableChildren) {
         // Wait a bit for DOM to render
         setTimeout(function() {
+            const inspected = JSON.parse(localStorage.getItem('inspectedTrades') || '[]');
+
+            // Find all inspect links
             const links = document.querySelectorAll('.inspect-link');
             links.forEach(link => {
+                const tradeId = link.getAttribute('data-trade-id');
+                if (!tradeId) return;
+
+                // Update link based on inspected state
+                if (inspected.includes(tradeId)) {
+                    link.textContent = '✓ Inspected';
+                    link.style.color = '#28a745';
+                    link.style.fontWeight = 'bold';
+                }
+
                 // Clone to remove old listeners
                 const newLink = link.cloneNode(true);
                 link.parentNode.replaceChild(newLink, link);
 
-                // Add new click listener
-                newLink.addEventListener('click', function() {
-                    const tradeId = this.id.replace('inspect-link-', '');
-                    const inspected = JSON.parse(localStorage.getItem('inspectedTrades') || '[]');
-
+                // Add click listener to mark as inspected
+                newLink.addEventListener('click', function(e) {
                     if (!inspected.includes(tradeId)) {
                         inspected.push(tradeId);
                         localStorage.setItem('inspectedTrades', JSON.stringify(inspected));
@@ -1154,11 +1199,10 @@ app.clientside_callback(
             });
         }, 100);
 
-        // Return current inspected list
-        return JSON.parse(localStorage.getItem('inspectedTrades') || '[]');
+        return window.dash_clientside.no_update;
     }
     """,
-    Output("inspected-trades-store", "data"),
+    Output("trade-table-container", "style"),  # Dummy output to avoid circular dependency
     Input("cinema-trade-table", "children"),
 )
 
@@ -1194,6 +1238,11 @@ if __name__ == "__main__":
     def log_response(response):
         from flask import request
         print(f"[RESPONSE] {request.method} {request.path} -> {response.status_code}", flush=True)
+        # Prevent asset caching issues when switching ports
+        if '_dash-component-suites' in request.path or 'async' in request.path:
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
         return response
 
     log.info("Starting JcampFX dashboard on http://localhost:%d", args.port)

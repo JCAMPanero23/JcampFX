@@ -261,6 +261,9 @@ class BacktestResults:
         if self.equity_curve is not None:
             self.equity_curve.to_frame("equity").to_parquet(p / "equity.parquet")
 
+        if self.drawdown_curve is not None:
+            self.drawdown_curve.to_frame("drawdown").to_parquet(p / "drawdown.parquet")
+
         if self.dcrd_timeline is not None:
             self.dcrd_timeline.to_parquet(p / "dcrd_timeline.parquet", index=False)
 
@@ -270,6 +273,7 @@ class BacktestResults:
         p = Path(path)
         trades_path = p / "trades.parquet"
         equity_path = p / "equity.parquet"
+        drawdown_path = p / "drawdown.parquet"
         dcrd_path = p / "dcrd_timeline.parquet"
 
         results = cls()
@@ -281,6 +285,10 @@ class BacktestResults:
         if equity_path.exists():
             eq_df = pd.read_parquet(equity_path)
             results.equity_curve = eq_df["equity"]
+
+        if drawdown_path.exists():
+            dd_df = pd.read_parquet(drawdown_path)
+            results.drawdown_curve = dd_df["drawdown"]
 
         if dcrd_path.exists():
             results.dcrd_timeline = pd.read_parquet(dcrd_path)

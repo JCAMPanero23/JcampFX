@@ -276,6 +276,20 @@ class TrendRider(BaseStrategy):
         partial_pct = get_partial_exit_pct(composite_score)
 
         pip = PIP_SIZE.get(pair, 0.0001)
+
+        # CRITICAL: Validate minimum SL distance (PRD v2.2 bug fix - trade 9bb53c06)
+        # Without this, shallow pullbacks create SL too close to entry
+        # causing inflated negative R-multiples (e.g. -6.00R instead of -1.05R max)
+        # Root cause: pullback bar's extreme can be within 0.2 pips of entry
+        MIN_SL_PIPS = 10  # 10 pips minimum for all pairs
+        r_dist = abs(entry - sl)
+        r_dist_pips = r_dist / pip
+        if r_dist < MIN_SL_PIPS * pip:
+            log.debug(
+                "TrendRider: SL too tight (%.2f pips < %d pips min) -- skip signal",
+                r_dist_pips, MIN_SL_PIPS
+            )
+            return None
         pullback_bar_abs_idx = len(range_bars) - 2
         entry_bar_abs_idx = len(range_bars) - 1
         pullback_bar = range_bars.iloc[-2]

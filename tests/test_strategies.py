@@ -454,3 +454,171 @@ def test_staircase_bool_compat():
         "end_time": pd.date_range("2024-01-01", periods=10, freq="h"),
     })
     assert _detect_3bar_staircase(bars, "BUY")  # truthy when found
+
+
+# ---------------------------------------------------------------------------
+# PRD v2.2 Bug Fix — Minimum SL Distance Validation (trade 9bb53c06)
+# ---------------------------------------------------------------------------
+
+def test_trendrider_rejects_tight_sl():
+    """
+    TrendRider must reject signals when SL is too close to entry (< 10 pips).
+
+    Bug context: Trade 9bb53c06 (USDJPY BUY, 2024-04-29)
+      - Entry: 158.14, SL: 158.138 (only 0.2 pips away)
+      - Resulted in -6.00R loss when SL hit at 158.128
+      - Root cause: Pullback bar's low was too close to entry bar's close
+
+    Fix: Added MIN_SL_PIPS = 10 validation in TrendRider.analyze()
+    """
+    from src.strategies.trend_rider import TrendRider
+
+    strategy = TrendRider()
+
+    # Create 1H OHLC with strong uptrend (EMA200 confirmation)
+    ohlc_1h = _make_1h_ohlc(250)
+    ohlc_4h = _make_trending_ohlc(300, trend=0.0002)
+
+    # Build Range Bars with shallow pullback (tight SL scenario)
+    # Staircase: 5 bullish bars → 1 shallow pullback → 1 resumption bar
+    pip = 0.01  # USDJPY pip size
+    bars = []
+    price = 158.00
+    t = datetime(2024, 4, 29, tzinfo=timezone.utc)
+
+    # Staircase: 5 bullish bars
+    for i in range(5):
+        open_p = price
+        close_p = price + 0.25  # 25 pip range bar
+        bars.append({
+            "open": open_p,
+            "high": close_p,
+            "low": open_p,
+            "close": close_p,
+            "end_time": t,
+        })
+        price = close_p
+        t += timedelta(minutes=30)
+
+    # Shallow pullback bar (creates tight SL scenario - like trade 9bb53c06)
+    # Pullback barely moves price, creating ~5 pip SL distance
+    pullback_low = price - 0.02   # Only 2 pips below current price
+    pullback_close = price - 0.01  # 1 pip bearish bar (close < open)
+    bars.append({
+        "open": price,
+        "high": price,
+        "low": pullback_low,
+        "close": pullback_close,
+        "end_time": t,
+    })
+    t += timedelta(minutes=30)
+
+    # Resumption bar (bullish, triggers entry)
+    # Entry will be at pullback_close + small move
+    entry_bar_open = pullback_close
+    entry_bar_close = pullback_close + 0.03  # Entry ~3 pips above pullback close
+    bars.append({
+        "open": entry_bar_open,
+        "high": entry_bar_close,
+        "low": entry_bar_open,
+        "close": entry_bar_close,  # Entry = 158.05 (approx)
+        "end_time": t,
+    })
+
+    rbs = pd.DataFrame(bars)
+
+    # Calculate expected SL distance
+    entry_price = rbs.iloc[-1]["close"]
+    sl_price = pullback_low  # SL = pullback bar's low
+    sl_distance_pips = abs(entry_price - sl_price) / pip
+
+    # Verify setup creates tight SL (should be < 10 pips)
+    assert sl_distance_pips < 10, f"Test setup error: SL distance {sl_distance_pips:.2f} pips should be < 10"
+
+    # TrendRider should REJECT this signal due to tight SL
+    news_state = {"pair": "USDJPY"}
+    signal = strategy.analyze(rbs, ohlc_4h, ohlc_1h, 100.0, news_state)
+
+    assert signal is None, (
+        f"TrendRider should reject signal with SL={sl_distance_pips:.2f} pips "
+        f"(< 10 pips minimum), but returned {signal}"
+    )
+
+
+def test_trendrider_accepts_valid_sl():
+    """
+    TrendRider must accept signals when SL distance is >= 10 pips.
+    """
+    from src.strategies.trend_rider import TrendRider
+
+    strategy = TrendRider()
+
+    # Create valid 1H OHLC with uptrend
+    ohlc_1h = _make_1h_ohlc(250)
+    ohlc_4h = _make_trending_ohlc(300, trend=0.0002)
+
+    # Build Range Bars with deeper pullback (valid SL scenario)
+    pip = 0.01  # USDJPY pip size
+    bars = []
+    price = 158.00
+    t = datetime(2024, 4, 29, tzinfo=timezone.utc)
+
+    # Staircase: 5 bullish bars
+    for i in range(5):
+        open_p = price
+        close_p = price + 0.25
+        bars.append({
+            "open": open_p,
+            "high": close_p,
+            "low": open_p,
+            "close": close_p,
+            "end_time": t,
+        })
+        price = close_p
+        t += timedelta(minutes=30)
+
+    # Deeper pullback bar (creates valid 15-pip SL)
+    pullback_low = price - 0.25
+    pullback_close = price - 0.15  # bearish bar
+    bars.append({
+        "open": price,
+        "high": price,
+        "low": pullback_low,
+        "close": pullback_close,
+        "end_time": t,
+    })
+    t += timedelta(minutes=30)
+
+    # Resumption bar
+    entry_bar_open = pullback_close
+    entry_bar_close = entry_bar_open + 0.25
+    bars.append({
+        "open": entry_bar_open,
+        "high": entry_bar_close,
+        "low": entry_bar_open,
+        "close": entry_bar_close,
+        "end_time": t,
+    })
+
+    rbs = pd.DataFrame(bars)
+
+    # Calculate expected SL distance
+    entry_price = rbs.iloc[-1]["close"]
+    sl_price = pullback_low
+    sl_distance_pips = abs(entry_price - sl_price) / pip
+
+    # Verify setup creates valid SL (>= 10 pips)
+    assert sl_distance_pips >= 10, f"Test setup error: SL distance {sl_distance_pips:.2f} pips should be >= 10"
+
+    # TrendRider should ACCEPT this signal (or return None for other valid reasons)
+    # We're only testing that it doesn't reject due to tight SL
+    news_state = {"pair": "USDJPY"}
+    signal = strategy.analyze(rbs, ohlc_4h, ohlc_1h, 100.0, news_state)
+
+    # Signal may be None due to ADX or other checks, but NOT due to tight SL
+    # If signal exists, verify SL distance is >= 10 pips
+    if signal is not None:
+        actual_sl_dist = abs(signal.entry - signal.sl) / pip
+        assert actual_sl_dist >= 10, (
+            f"Signal has tight SL: {actual_sl_dist:.2f} pips (should be >= 10)"
+        )

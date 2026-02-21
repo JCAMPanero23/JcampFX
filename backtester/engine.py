@@ -398,10 +398,11 @@ class BacktestEngine:
         entry_price = apply_entry_slippage(signal.entry, signal.direction, signal.pair)
         initial_r_pips = abs(entry_price - signal.sl) / pip
 
-        # Extract L1/L2/L3 from DCRD breakdown (if available)
+        # Extract L1/L2/L3 and regime from DCRD breakdown (if available)
         layer1 = dcrd_breakdown.get("layer1_structural", 0.0) if dcrd_breakdown else 0.0
         layer2 = dcrd_breakdown.get("layer2_modifier", 0.0) if dcrd_breakdown else 0.0
         layer3 = dcrd_breakdown.get("layer3_rb_intelligence", 0.0) if dcrd_breakdown else 0.0
+        regime = dcrd_breakdown.get("regime", "transitional") if dcrd_breakdown else "transitional"
 
         trade = BacktestTrade(
             trade_id=str(uuid.uuid4())[:8],
@@ -414,6 +415,7 @@ class BacktestEngine:
             lot_size=signal.lot_size,
             initial_r_pips=initial_r_pips,
             composite_score=signal.composite_score,
+            regime=regime,
             layer1_structural=layer1,
             layer2_modifier=layer2,
             layer3_rb_intelligence=layer3,

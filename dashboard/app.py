@@ -977,12 +977,12 @@ def _build_trade_table(store_data: dict) -> list:
         return [html.P("No trades to display.", style={"color": "#666", "fontSize": "13px"})]
 
     columns = [
-        "entry_time", "pair", "strategy", "direction", "composite_score",
+        "entry_time", "pair", "strategy", "direction", "composite_score", "regime",
         "entry_price", "partial_exit_price", "close_price",
         "close_reason", "r_multiple_total", "pnl_usd",
     ]
     headers = [
-        "Date", "Pair", "Strategy", "Dir", "CS",
+        "Date", "Pair", "Strategy", "Dir", "CS", "Regime",
         "Entry", "Part.Exit", "Close", "Reason", "R-Mult", "PnL ($)", "Inspect",
     ]
 
@@ -1009,6 +1009,11 @@ def _build_trade_table(store_data: dict) -> list:
                 return f"{float(val):.0f}"
             except (TypeError, ValueError):
                 return str(val)
+        if col == "regime":
+            # Format regime as capitalized first letter (T/B/R for Trending/Breakout/Ranging)
+            if val and isinstance(val, str):
+                return val[0].upper()
+            return "\u2014"
         if col == "entry_time":
             return str(val)[:16]
         return str(val) if val else "\u2014"

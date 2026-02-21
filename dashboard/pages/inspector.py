@@ -20,6 +20,12 @@ dash.register_page(__name__, path="/inspector")
 
 log = logging.getLogger(__name__)
 
+# Version marker for debugging cache issues
+_INSPECTOR_VERSION = "2026-02-21-v3"
+
+# Print at module load time to verify file is being imported
+print(f"[INSPECTOR MODULE LOADED] Version {_INSPECTOR_VERSION}", flush=True)
+
 # ============================================================================
 # Layout
 # ============================================================================
@@ -75,55 +81,85 @@ def load_inspector_view(search_query: str | None):
     """
     Parse URL parameters, load trade context, render metadata + chart.
     """
-    # Parse query string
-    params = _parse_query_string(search_query)
-    run_id = params.get("run")
-    trade_id = params.get("trade")
+    import traceback
 
-    if not run_id or not trade_id:
-        return (
-            html.Div("No trade specified. Navigate from Cinema tab.", style={"color": "red"}),
-            go.Figure(),
-            None,
-            None,
-            [],
-        )
-
-    # Build run directory path
-    run_dir = Path("data/backtest_results") / run_id
-    if not run_dir.exists():
-        return (
-            html.Div(f"Run directory not found: {run_dir}", style={"color": "red"}),
-            go.Figure(),
-            None,
-            None,
-            [],
-        )
-
-    # Load all trade IDs for prev/next navigation
-    trades_df = pd.read_parquet(run_dir / "trades.parquet")
-    all_trade_ids = trades_df["trade_id"].tolist()
-
-    # Load trade context
+    # Wrap EVERYTHING in try/except to catch any errors
     try:
-        ctx = get_trade_context(str(run_dir), trade_id, context_bars=20)
-    except Exception as exc:
-        log.exception("Failed to load trade context")
-        return (
-            html.Div(f"Error loading trade: {exc}", style={"color": "red"}),
-            go.Figure(),
-            run_id,
-            trade_id,
-            all_trade_ids,
-        )
+        # DEBUG: Log what we actually receive
+        print(f"[Inspector v{_INSPECTOR_VERSION}] Callback triggered with search_query={search_query!r}", flush=True)
+        log.info(f"[Inspector v{_INSPECTOR_VERSION}] Callback triggered with search_query={search_query!r}")
 
-    # Build metadata panel
-    metadata_panel = _build_metadata_panel(ctx)
+        # Parse query string
+        params = _parse_query_string(search_query)
+        print(f"[Inspector] Parsed params={params}", flush=True)
+        run_id = params.get("run")
+        trade_id = params.get("trade")
 
-    # Build chart
-    chart_fig = _build_inspector_chart(ctx)
+        if not run_id or not trade_id:
+            print(f"[Inspector] No run_id or trade_id, returning empty", flush=True)
+            return (
+                html.Div(f"No trade specified. Navigate from Cinema tab. (Inspector {_INSPECTOR_VERSION})",
+                         style={"color": "red"}),
+                go.Figure(),
+                None,
+                None,
+                [],
+            )
 
-    return metadata_panel, chart_fig, run_id, trade_id, all_trade_ids
+        # Build run directory path
+        run_dir = Path("data/backtest_results") / run_id
+        print(f"[Inspector] run_dir={run_dir}, exists={run_dir.exists()}", flush=True)
+        if not run_dir.exists():
+            return (
+                html.Div(f"Run directory not found: {run_dir}", style={"color": "red"}),
+                go.Figure(),
+                None,
+                None,
+                [],
+            )
+
+        # Load all trade IDs for prev/next navigation
+        print(f"[Inspector] Loading trades.parquet...", flush=True)
+        trades_df = pd.read_parquet(run_dir / "trades.parquet")
+        all_trade_ids = trades_df["trade_id"].tolist()
+        print(f"[Inspector] Loaded {len(all_trade_ids)} trade IDs", flush=True)
+
+        # Load trade context
+        print(f"[Inspector] Loading trade context for {trade_id}...", flush=True)
+        try:
+            ctx = get_trade_context(str(run_dir), trade_id, context_bars=20)
+            print(f"[Inspector] Trade context loaded successfully", flush=True)
+        except Exception as exc:
+            print(f"[Inspector] ERROR loading trade context: {exc}", flush=True)
+            traceback.print_exc()
+            log.exception("Failed to load trade context")
+            return (
+                html.Div(f"Error loading trade: {exc}", style={"color": "red"}),
+                go.Figure(),
+                run_id,
+                trade_id,
+                all_trade_ids,
+            )
+
+        # Build metadata panel
+        print(f"[Inspector] Building metadata panel...", flush=True)
+        metadata_panel = _build_metadata_panel(ctx)
+        print(f"[Inspector] Metadata panel built", flush=True)
+
+        # Build chart
+        print(f"[Inspector] Building chart...", flush=True)
+        chart_fig = _build_inspector_chart(ctx)
+        print(f"[Inspector] Chart built with {len(chart_fig.data)} traces", flush=True)
+
+        print(f"[Inspector] Returning successful result", flush=True)
+        return metadata_panel, chart_fig, run_id, trade_id, all_trade_ids
+
+    except Exception as e:
+        # Catch ANY error and print full traceback
+        print(f"[Inspector] FATAL ERROR: {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        # Re-raise so Dash knows there was an error
+        raise
 
 
 @callback(

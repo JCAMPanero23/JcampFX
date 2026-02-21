@@ -1060,12 +1060,32 @@ def cinema_update_charts(store_data, rb_pair):
 
 if __name__ == "__main__":
     import argparse
+    import traceback
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     parser = argparse.ArgumentParser(description="JcampFX Range Bar Dashboard")
     parser.add_argument("--port", type=int, default=8050)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
+
+    # Add Flask error handler to catch and log ALL errors
+    @app.server.errorhandler(Exception)
+    def handle_exception(e):
+        print(f"[FLASK ERROR] {type(e).__name__}: {e}", flush=True)
+        traceback.print_exc()
+        return f"Internal Server Error: {e}", 500
+
+    # Add request logging to see ALL incoming requests
+    @app.server.before_request
+    def log_request():
+        from flask import request
+        print(f"[REQUEST] {request.method} {request.path}", flush=True)
+
+    @app.server.after_request
+    def log_response(response):
+        from flask import request
+        print(f"[RESPONSE] {request.method} {request.path} -> {response.status_code}", flush=True)
+        return response
 
     log.info("Starting JcampFX dashboard on http://localhost:%d", args.port)
     app.run(debug=args.debug, port=args.port)

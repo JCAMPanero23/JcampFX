@@ -124,6 +124,10 @@ class BacktestEngine:
         # BrainCore (auto-registers strategies)
         self._brain = BrainCore(news_layer=self._news)
 
+        # DCRD history tracking (Phase 3.1.1 — DCRD momentum filter)
+        # Store last N composite scores per pair for momentum calculation
+        self._dcrd_history: dict[str, list[float]] = {p: [] for p in pairs}
+
     # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
@@ -193,6 +197,11 @@ class BacktestEngine:
             rb_window_df = pd.DataFrame(rb_window_cache[pair])
             composite_score, regime, dcrd_breakdown = self._compute_dcrd(pair, end_time, rb_window_df)
 
+            # Track DCRD history for momentum calculation (Phase 3.1.1)
+            self._dcrd_history[pair].append(composite_score)
+            if len(self._dcrd_history[pair]) > 10:  # Keep last 10 scores (need 6 minimum: current + 5 back)
+                self._dcrd_history[pair] = self._dcrd_history[pair][-10:]
+
             # 1. Check exits for all open trades on this pair
             open_ids_before = {t.trade_id for t in account.open_trades}
             open_on_pair = [t for t in list(account.open_trades) if t.pair == pair]
@@ -245,6 +254,7 @@ class BacktestEngine:
                 account_state=account.get_account_state(),
                 current_time=end_time,
                 last_bar=bar,  # v2.2: phantom detection (VP.4)
+                dcrd_history=self._dcrd_history.get(pair, []),  # Phase 3.1.1: DCRD momentum
             )
 
             # 6. Open trade if signal is valid and unblocked

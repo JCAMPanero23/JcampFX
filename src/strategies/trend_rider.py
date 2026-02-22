@@ -229,11 +229,13 @@ class TrendRider(BaseStrategy):
         ohlc_1h: pd.DataFrame,
         composite_score: float,
         news_state: dict,
+        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum
     ) -> Optional[Signal]:
         """
         Return a Signal if a TrendRider setup is found, else None.
 
         V2.2: Returns None if composite_score < 70.
+        Phase 3.1.1: Returns None if DCRD momentum < 0 (trend deteriorating).
         """
         if not self.is_regime_active(composite_score):
             return None
@@ -253,6 +255,28 @@ class TrendRider(BaseStrategy):
         staircase_depth = _detect_3bar_staircase(range_bars, direction)
         if not staircase_depth:
             return None
+
+        # Step 2.5: DCRD momentum filter (Phase 3.1.1)
+        # CRITICAL: Block entries when DCRD is declining (trend deteriorating)
+        # Analysis showed 100% correlation across 66 trades:
+        #   - All 24 wins had stable DCRD (momentum ≥ 0)
+        #   - All 42 losses had declining DCRD (momentum < 0)
+        # Formula: DCRD_momentum = CS_current - CS_5bars_ago
+        pair = news_state.get("pair", "UNKNOWN")
+        if dcrd_history is None:
+            log.warning("TrendRider %s: dcrd_history is None! Filter skipped.", pair)
+        elif len(dcrd_history) < 6:
+            log.warning("TrendRider %s: dcrd_history too short (%d < 6)! Filter skipped.", pair, len(dcrd_history))
+        else:
+            cs_5bars_ago = dcrd_history[-6]  # -1 is current, -6 is 5 bars ago
+            dcrd_momentum = composite_score - cs_5bars_ago
+            log.info(
+                "TrendRider %s: DCRD momentum check: CS %.1f → %.1f (%.1f momentum, %s)",
+                pair, cs_5bars_ago, composite_score, dcrd_momentum,
+                "PASS" if dcrd_momentum >= 0 else "BLOCK"
+            )
+            if dcrd_momentum < 0:
+                return None
 
         # Step 3: Confirm ADX > 25 AND rising (trend gaining strength, not exhausting)
         adx = _adx_1h(ohlc_1h)

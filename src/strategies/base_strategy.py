@@ -56,6 +56,7 @@ class BaseStrategy(ABC):
         ohlc_1h: pd.DataFrame,
         composite_score: float,
         news_state: dict,
+        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum
     ) -> Optional[Signal]:
         """
         Analyze market data and return a Signal or None.
@@ -68,6 +69,7 @@ class BaseStrategy(ABC):
         composite_score : Current DCRD CompositeScore (0–100)
         news_state      : Dict with keys: blocked, post_cooling, events
                           (populated by BrainCore from NewsLayer)
+        dcrd_history    : Last N composite scores for momentum calculation (Phase 3.1.1)
 
         Returns
         -------

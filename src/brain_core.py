@@ -193,6 +193,7 @@ class BrainCore:
         sl_pips: float = 0.0,
         pip_value_per_lot: Optional[float] = None,
         last_bar: Optional[pd.Series] = None,  # v2.2: for phantom detection
+        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum tracking
     ) -> Optional[Signal]:
         """
         Run all gates and route to the appropriate strategy.
@@ -209,6 +210,7 @@ class BrainCore:
         atr14            : ATR(14) in price terms (for chandelier, passed through)
         sl_pips          : Estimated SL distance in pips (for lot sizing)
         pip_value_per_lot: USD pip value for lot sizing (None = auto-estimate)
+        dcrd_history     : Last N composite scores for momentum calculation (Phase 3.1.1)
 
         Returns
         -------
@@ -300,7 +302,10 @@ class BrainCore:
         }
 
         # --- Run strategy ---
-        signal = active_strategy.analyze(range_bars, ohlc_4h, ohlc_1h, composite_score, news_state)
+        signal = active_strategy.analyze(
+            range_bars, ohlc_4h, ohlc_1h, composite_score, news_state,
+            dcrd_history=dcrd_history,  # Phase 3.1.1: DCRD momentum filter
+        )
         if signal is None:
             return None
 

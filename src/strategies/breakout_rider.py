@@ -168,6 +168,7 @@ class BreakoutRider(BaseStrategy):
         ohlc_1h: pd.DataFrame,
         composite_score: float,
         news_state: dict,
+        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum (not used yet)
     ) -> Optional[Signal]:
         """
         Return a Signal if a BreakoutRider setup is found, else None.

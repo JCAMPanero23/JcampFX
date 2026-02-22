@@ -1,4 +1,23 @@
-# Next Session Plan: Improve Entry Quality & Prevent Price Level Re-Entry
+# Phase 3.1.1 — Price Level Cooldown & Entry Quality Improvement
+
+**Phase:** 3.1.1 (Critical Fixes Before Gate)
+**Focus:** Eliminate revenge trades (95% of loss) + improve TrendRider entry quality
+**Gate:** Phase 3 Validation (V3.1: Net profit positive)
+
+## Phase 3 Status
+
+| Phase | Status | Gate | Current Result |
+|---|---|---|---|
+| **Phase 3** | IN PROGRESS | Net profit positive | ❌ FAIL (-$218.71 baseline) |
+| **Phase 3.1** | IN PROGRESS | Identify loss drivers | ✅ COMPLETE (revenge trades) |
+| **Phase 3.1.1** | PENDING | Eliminate revenge trades | 🎯 NEXT SESSION |
+
+**Phase 3.1.1 Objectives:**
+1. Implement Price Level Cooldown (eliminate 94.7% of losses)
+2. Achieve breakeven or small profit on 2024-2025 backtest
+3. Pass Phase 3 Gate V3.1 (Net profit positive)
+
+---
 
 ## Context
 

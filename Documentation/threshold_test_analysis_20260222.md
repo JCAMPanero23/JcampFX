@@ -1,5 +1,10 @@
 # Threshold Adjustment Test Analysis — Feb 22, 2026
 
+**Phase:** 3.1 (Loss Driver Analysis)
+**Test:** Task 0 — DCRD Threshold Adjustment (CS 85/40/40)
+**Result:** REJECTED — Made performance worse
+**Next Phase:** 3.1.1 (Price Level Cooldown Implementation)
+
 ## Test Configuration
 
 **Run ID:** `run_20260222_070424`

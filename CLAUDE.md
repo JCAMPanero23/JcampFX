@@ -147,31 +147,42 @@ MT5 Terminal: `C:\Users\jcamp\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF
 
 ---
 
-## Next Session Plan
+## Phase 3.1.1 — Next Session Plan
 
-See `Documentation/next_session_plan.md` for detailed task breakdown.
+**Phase:** 3.1.1 (Critical Fixes Before Gate)
+**Objective:** Eliminate revenge trades → achieve breakeven or profit
+**See:** `Documentation/next_session_plan.md` for detailed plan
 
-**Summary of Pending Tasks:**
-1. **Task 0 (NEW - Quick Win):** Adjust DCRD regime thresholds (CS 85/40/40) to improve strategy diversification
-   - BreakoutRider gets 2.6x more regime time (22.3% → 58.5%)
-   - TrendRider becomes more selective (77.7% → 41.4%)
-   - Low-risk config-only change, easily reversible
-2. **Task 1 (Priority 1):** Add Price Level Cooldown to prevent "revenge trading" at same price
-3. **Task 2 (Priority 2):** Build batch analysis tool to identify losing trade patterns
-4. **Task 3 (Priority 3):** Add TrendRider entry quality filters based on analysis results
+**Critical Discovery (Feb 22, 2026):**
+- **94.7% of loss from revenge trades!** (-20.83R out of -22.00R)
+- Pattern: Re-entering same price level within 0.5-2h after loss
+- Impact: Price Level Cooldown could eliminate ~95% of losses
 
-**Critical Findings (Feb 2026):**
-- TrendRider dominance (290/292 trades) is data-driven, not a bug
-- DCRD scores ranged 30-100 during 2024-2025 (never <30 = Ranging regime)
-- BreakoutRider conditions too strict (only 2 trades in 2 years)
-- Adjusting thresholds is simpler than relaxing BreakoutRider conditions
+**Session Tasks:**
+1. **Task 1 (CRITICAL):** Implement Price Level Cooldown
+   - Block entries within ±20 pips of recent loss for 4 hours
+   - Expected: Turn -22R into ~-1.2R (near breakeven)
+2. **Task 0 (TESTED & REJECTED):** Threshold adjustment (CS 85/40/40)
+   - Result: Made performance worse (WR 30.4% vs 36% baseline)
+   - Conclusion: CS 70-85 is the "sweet spot" for trend entries
+3. **Task 2 (Next):** TrendRider entry quality analysis
+4. **Task 3 (Next):** Add quality filters based on analysis
+
+**Test Results Summary:**
+- Baseline (CS 70/30/30): -$218.71, 292 trades, 36% WR
+- Test (CS 85/40/40): -$140.92, 79 trades, 30.4% WR (REJECTED)
+- Revenge trades: 10 pairs, -20.83R loss (94.7% of total)
 
 ## Development Phases
 | Phase | Focus | Status | Gate |
 |---|---|---|---|
 | 1 | Range Bar Engine + Web Chart | COMPLETE | Visual validation ✅ |
 | 2 | DCRD + Strategies + Exit System + News | COMPLETE (v2.1) | Unit tests ✅ |
-| 3 | Web Backtester (2yr data, 4 walk-forward cycles) | IN PROGRESS | Profitable after costs |
+| **3** | **Web Backtester (2yr data, 4 walk-forward cycles)** | **IN PROGRESS** | **Profitable after costs** |
+| 3.1 | Identify loss drivers | COMPLETE | Root cause analysis ✅ |
+| **3.1.1** | **Eliminate revenge trades (Price Level Cooldown)** | **NEXT SESSION** | **Breakeven or profit** 🎯 |
+| 3.2 | TrendRider entry quality improvement | PENDING | 40%+ partial-reach rate |
+| 3.3 | Walk-forward validation | PENDING | 4 cycles profitable |
 | 4 | ZMQ Bridge + Demo Trading | PENDING | 1-week demo match |
 | 5 | VPS + Android + Signal Service | PENDING | Live execution |
 

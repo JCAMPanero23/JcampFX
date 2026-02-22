@@ -53,6 +53,55 @@ PRESETS = {
             "STRATEGY_RANGERIDER_MAX_CS": 30,
         },
     },
+    "price-level-cooldown": {
+        "name": "Price Level Cooldown Test",
+        "description": "Prevent re-entry at same price level (Task 1)",
+        "overrides": {
+            "PRICE_LEVEL_COOLDOWN_ENABLED": True,
+            "PRICE_LEVEL_COOLDOWN_PIPS": 20,
+            "PRICE_LEVEL_COOLDOWN_HOURS": 4,
+        },
+    },
+    "aggressive-partial-exit": {
+        "name": "Aggressive Partial Exit (80% at 1.5R)",
+        "description": "Take more profit early, smaller runners",
+        "overrides": {
+            "PARTIAL_EXIT_TIERS": [
+                (85, 0.80),  # CS > 85 → close 80% (was 60%)
+                (70, 0.85),  # CS 70–85 → close 85% (was 70%)
+                (30, 0.90),  # CS 30–70 → close 90% (was 75%)
+                (0,  0.95),  # CS < 30  → close 95% (was 80%)
+            ],
+        },
+    },
+    "conservative-partial-exit": {
+        "name": "Conservative Partial Exit (40% at 1.5R)",
+        "description": "Smaller profit lock, larger runners",
+        "overrides": {
+            "PARTIAL_EXIT_TIERS": [
+                (85, 0.40),  # CS > 85 → close 40% (was 60%)
+                (70, 0.50),  # CS 70–85 → close 50% (was 70%)
+                (30, 0.60),  # CS 30–70 → close 60% (was 75%)
+                (0,  0.70),  # CS < 30  → close 70% (was 80%)
+            ],
+        },
+    },
+    "tight-chandelier": {
+        "name": "Tight Chandelier Floors",
+        "description": "Tighter trailing stops on runners",
+        "overrides": {
+            "CHANDELIER_FLOOR_MAJORS": 10,  # was 15
+            "CHANDELIER_FLOOR_JPY": 15,     # was 25
+        },
+    },
+    "loose-chandelier": {
+        "name": "Loose Chandelier Floors",
+        "description": "Wider trailing stops on runners",
+        "overrides": {
+            "CHANDELIER_FLOOR_MAJORS": 25,  # was 15
+            "CHANDELIER_FLOOR_JPY": 35,     # was 25
+        },
+    },
     "high-risk": {
         "name": "High Risk Testing (2% base)",
         "description": "Test with elevated risk per trade",
@@ -241,6 +290,56 @@ def cmd_list_presets() -> None:
             print(f"    {key:40s} = {value}")
 
 
+def cmd_save_custom(name: str) -> None:
+    """Save current overrides as a custom preset."""
+    cfg = get_config()
+    overrides = cfg.get_active_overrides()
+
+    if not overrides:
+        print("[ERROR] No overrides active — nothing to save")
+        return
+
+    custom_file = Path(f"config_custom_{name}.json")
+
+    custom_preset = {
+        "name": name,
+        "description": f"Custom configuration: {name}",
+        "overrides": overrides,
+    }
+
+    with open(custom_file, "w", encoding="utf-8") as f:
+        json.dump(custom_preset, f, indent=2, sort_keys=True)
+
+    print(f"[OK] Saved custom preset: {name}")
+    print(f"  File: {custom_file}")
+    print(f"  Overrides: {len(overrides)}")
+    print()
+    print(f"To load: python config_manager.py load-custom {name}")
+
+
+def cmd_load_custom(name: str) -> None:
+    """Load a custom preset from file."""
+    custom_file = Path(f"config_custom_{name}.json")
+
+    if not custom_file.exists():
+        print(f"[ERROR] Custom preset not found: {custom_file}")
+        return
+
+    with open(custom_file, "r", encoding="utf-8") as f:
+        custom_preset = json.load(f)
+
+    print(f"Loading custom preset: {custom_preset.get('name', name)}")
+    print(f"  {custom_preset.get('description', 'No description')}\n")
+
+    cfg = get_config()
+    for key, value in custom_preset["overrides"].items():
+        cfg.set_override(key, value)
+        print(f"  {key:40s} = {value}")
+
+    cfg.save_overrides()
+    print(f"\n[OK] Loaded {len(custom_preset['overrides'])} overrides from {name}")
+
+
 def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
@@ -266,6 +365,16 @@ def main() -> None:
         cmd_preset(sys.argv[2])
     elif cmd == "list-presets":
         cmd_list_presets()
+    elif cmd == "save-custom":
+        if len(sys.argv) < 3:
+            print("Usage: python config_manager.py save-custom NAME")
+            sys.exit(1)
+        cmd_save_custom(sys.argv[2])
+    elif cmd == "load-custom":
+        if len(sys.argv) < 3:
+            print("Usage: python config_manager.py load-custom NAME")
+            sys.exit(1)
+        cmd_load_custom(sys.argv[2])
     elif cmd == "save-as-defaults":
         cmd_save_as_defaults()
     elif cmd == "restore-backup":

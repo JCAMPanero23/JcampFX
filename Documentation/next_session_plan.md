@@ -25,7 +25,7 @@
 
 ## Proposed Solutions
 
-### Task 0: Adjust DCRD Regime Thresholds (NEW - Quick Win!)
+### Task 0: Adjust DCRD Regime Thresholds ❌ TESTED & REJECTED
 
 **Goal:** Shift regime distribution to give BreakoutRider more opportunities
 
@@ -82,14 +82,43 @@ python -m backtester.run_backtest --start 2025-01-01 --end 2025-12-31
 # - Overall trade count: might increase or stay similar
 ```
 
-**Decision Point:**
-Run this FIRST (before Task 1) as a quick test. If it improves diversification without hurting performance, keep it. If BreakoutRider still doesn't fire due to strict conditions, we know the threshold isn't the bottleneck.
+**TEST RESULTS (Feb 22, 2026):**
+```
+Run: run_20260222_070424
+PnL: -$140.92 (vs baseline -$218.71)
+Win Rate: 30.4% (WORSE than baseline 36.0%)
+Trades: 79 (vs baseline 292)
+Sharpe: -4.83 (WORSE than baseline -2.26)
+```
+
+**Findings:**
+- BreakoutRider still only 2 trades (BB compression bottleneck confirmed)
+- TrendRider win rate DROPPED (31.2% vs 36% baseline)
+- CS 85-100 = trend exhaustion (late entries, worse timing)
+- CS 70-85 = early trend (better entries) — we excluded this!
+
+**Decision: REJECT threshold adjustment, revert to CS 70/30/30**
+
+**See:** `Documentation/threshold_test_analysis_20260222.md` for full analysis
 
 ---
 
-### Task 1: Add Price Level Cooldown (Priority 1)
+### Task 1: Add Price Level Cooldown 🔥 CRITICAL — Eliminates 94.7% of Losses!
 
 **Goal:** Prevent re-entry within ±20 pips of a recent losing trade for N hours
+
+**CRITICAL FINDING (Feb 22, 2026):**
+- Revenge trades account for **94.7% of total loss** (-20.83R out of -22.00R)
+- 10 pairs of trades re-entering same price level within 0.5-2 hours
+- Pattern: Enter → SL (-1.04R) → Re-enter same level → SL (-1.04R)
+- **If eliminated:** -22R → -1.2R (near breakeven!)
+
+**Examples:**
+```
+USDJPY 153.79150: 2 entries in 0.6h → -2.08R total
+USDJPY 148.26500: 2 entries in 0.7h → -2.08R total
+GBPUSD 1.23254:   2 entries in 1.1h → -2.10R total
+```
 
 **Implementation Approach:**
 
@@ -307,24 +336,23 @@ Run this FIRST (before Task 1) as a quick test. If it improves diversification w
    - BreakoutRider conditions too strict (only 2 trades in 2 years)
    - RangeRider never triggered (CS never <30)
    - Recommendation: Focus on TrendRider quality improvement first
-3. ✅ Threshold adjustment impact analysis - DONE
-   - Proposed: CS ≥85 / 40-85 / <40
-   - Impact: TRANSITIONAL expands from 22.3% → 58.5% (2.6x more BreakoutRider time)
-   - TRENDING becomes more selective: 77.7% → 41.4%
+3. ✅ Threshold adjustment test (CS 85/40/40) - TESTED & REJECTED
+   - Result: -$140.92 (better than baseline -$218.71 but still losing)
+   - Win rate: 30.4% (WORSE than baseline 36.0%)
+   - 79 trades (vs 292 baseline) - sample size too small
+   - **Finding:** Higher CS threshold = worse entry timing (trend exhaustion)
+   - **Conclusion:** Revert to CS 70/30/30, threshold not the solution
+4. ✅ Revenge trade analysis - **CRITICAL DISCOVERY**
+   - **94.7% of total loss** (-20.83R out of -22.00R) from revenge trades!
+   - 10 pairs of trades re-entering same price level within 0.5-2h
+   - Pattern: Enter → SL hit (-1.04R) → Re-enter same level → SL hit again (-1.04R)
+   - **Impact:** Price Level Cooldown could eliminate ~95% of losses
+5. ✅ Enhanced config override system - DONE
+   - Added trade management presets (partial exit %, Chandelier floors)
+   - Added custom preset save/load commands
+   - 8 total presets now available
 
-**Session 1A: Threshold Adjustment (NEW Priority 0 - Quick Test)**
-1. Update `src/config.py` thresholds:
-   - `STRATEGY_TRENDRIDER_MIN_CS = 85` (was 70)
-   - `STRATEGY_BREAKOUTRIDER_MIN_CS = 40` (was 30)
-   - `STRATEGY_RANGERIDER_MAX_CS = 40` (was 30)
-2. Run backtest (2025-01-01 to 2025-12-31)
-3. Analyze results:
-   - Strategy distribution (expect more BreakoutRider signals)
-   - TrendRider partial-reach rate (might improve with higher CS floor)
-   - Overall PnL and R/trade
-4. Decision: Keep if diversification improves without hurting performance
-
-**Session 1B: Price Level Cooldown (Priority 1)**
+**Session 1: Price Level Cooldown Implementation (TOP PRIORITY)**
 1. Create `PriceLevelTracker` class in `src/price_level_tracker.py`
 2. Integrate into `BrainCore` signal gating
 3. Update backtest engine to report losing prices

@@ -118,7 +118,7 @@ Sharpe: -4.83 (WORSE than baseline -2.26)
 
 **Decision: REJECT threshold adjustment, revert to CS 70/30/30**
 
-**See:** `Documentation/threshold_test_analysis_20260222.md` for full analysis
+**See:** `docs/threshold_test_analysis_20260222.md` for full analysis
 
 ---
 
@@ -371,12 +371,38 @@ GBPUSD 1.23254:   2 entries in 1.1h → -2.10R total
    - Added custom preset save/load commands
    - 8 total presets now available
 
-**Session 1: Price Level Cooldown Implementation (TOP PRIORITY)**
-1. Create `PriceLevelTracker` class in `src/price_level_tracker.py`
-2. Integrate into `BrainCore` signal gating
-3. Update backtest engine to report losing prices
-4. Test with new backtest run (2024 or 2025 data)
-5. Validate: no duplicate entries within ±20 pips / 4 hours
+**✅ Session 1: Price Level Cooldown Implementation (COMPLETE)**
+**Date:** February 22, 2026
+**Run ID:** `run_20260222_083218`
+
+**Implementation:**
+1. ✅ Created `PriceLevelTracker` class in `src/price_level_tracker.py`
+   - Per-strategy tracking (TrendRider can't re-enter where TrendRider lost)
+   - Different strategies allowed at same price (BreakoutRider can enter where TrendRider lost)
+   - Configurable: ±20 pips threshold, 4-hour window
+2. ✅ Integrated into `BrainCore` (Gate 8.5 — price level cooldown)
+3. ✅ Updated backtest engine to report losing trades to tracker
+4. ✅ Added config parameters (PRICE_LEVEL_COOLDOWN_PIPS, PRICE_LEVEL_COOLDOWN_HOURS)
+5. ✅ Validation tests created and passed (test_price_level_tracker.py)
+
+**Results (vs Baseline):**
+- Net PnL: -$218.71 → **-$130.58** (+$88.13, **+40% improvement**) ✅
+- Total Trades: 292 → **165** (-127 trades, **-43%**) ✅
+- Win Rate: 36.0% → **38.2%** (+2.2 pts) ✅
+- Total R: -39.6R → **-16.07R** (+23.53R, **+59% improvement**) ✅
+- Sharpe: -2.26 → **-1.71** (+0.55) ✅
+- Max DD: 48.8% → **37.0%** (-11.8 pts) ✅
+- **Revenge trades blocked:** 22 attempts (within 0.0-2.3 hours of loss)
+
+**Status:** ✅ Revenge trades eliminated, but **system still not profitable** (-$130.58)
+
+**Analysis:**
+- Revenge trade elimination successful (22 blocks recorded)
+- Underlying entry quality issue remains (38.2% partial-reach rate, need 40%+)
+- TrendRider still has 62% SL hit rate before 1.5R
+- USDJPY concentration reduced but still 46% of trades (76/165)
+
+**See:** `docs/price_level_cooldown_results.md` for full analysis
 
 **Session 2: Entry Quality Analysis (Priority 2 - Research)**
 1. Build batch analysis tool in `backtester/analysis.py`

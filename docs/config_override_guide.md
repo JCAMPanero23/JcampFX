@@ -185,7 +185,7 @@ python -m backtester.run_backtest --start 2025-01-01 --end 2025-12-31
 
 ## Next Session Plan
 
-See `Documentation/next_session_plan.md` for detailed task breakdown.
+See `docs/next_session_plan.md` for detailed task breakdown.
 
 **Priority:**
 1. Test threshold adjustment (CS 85/40/40) on 2024 and 2025 data

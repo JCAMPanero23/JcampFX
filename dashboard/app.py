@@ -21,7 +21,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 import dash
-from dash import Input, Output, State, callback, dcc, html
+from dash import Input, Output, State, callback, dcc, html, dash_table
 from dash.exceptions import PreventUpdate
 
 import sys
@@ -974,102 +974,107 @@ def _build_rb_figure(store_data: dict, rb_pair: str) -> go.Figure:
 
 
 def _build_trade_table(store_data: dict) -> list:
-    """Build HTML trade log table from store data."""
+    """Build sortable trade log table from store data."""
     trades = store_data.get("trades", [])
     if not trades:
         return [html.P("No trades to display.", style={"color": "#666", "fontSize": "13px"})]
 
-    columns = [
-        "entry_time", "pair", "strategy", "direction", "composite_score", "regime",
-        "entry_price", "partial_exit_price", "close_price",
-        "close_reason", "r_multiple_total", "pnl_usd",
-    ]
-    headers = [
-        "Date", "Pair", "Strategy", "Dir", "CS", "Regime",
-        "Entry", "Part.Exit", "Close", "Reason", "R-Mult", "PnL ($)", "Inspect",
-    ]
-
-    def _fmt(val, col):
-        if val is None:
-            return "\u2014"
-        if col in ("entry_price", "partial_exit_price", "close_price"):
-            try:
-                return f"{float(val):.5f}"
-            except (TypeError, ValueError):
-                return str(val)
-        if col == "r_multiple_total":
-            try:
-                return f"{float(val):+.2f}R"
-            except (TypeError, ValueError):
-                return str(val)
-        if col == "pnl_usd":
-            try:
-                return f"${float(val):+.2f}"
-            except (TypeError, ValueError):
-                return str(val)
-        if col == "composite_score":
-            try:
-                return f"{float(val):.0f}"
-            except (TypeError, ValueError):
-                return str(val)
-        if col == "regime":
-            # Format regime as full capitalized text
-            if val and isinstance(val, str):
-                return val.upper()  # Full text: TRENDING, BREAKOUT, RANGING, TRANSITIONAL
-            return "\u2014"
-        if col == "entry_time":
-            return str(val)[:16]
-        return str(val) if val else "\u2014"
-
-    def _row_bg(t):
-        try:
-            r = float(t.get("r_multiple_total") or 0)
-        except (TypeError, ValueError):
-            r = 0
-        if r > 0:
-            return "rgba(46,204,113,0.08)"
-        if r < 0:
-            return "rgba(231,76,60,0.08)"
-        return "transparent"
-
-    th_style = {
-        "padding": "6px 10px", "color": "#aaa", "fontWeight": "bold",
-        "borderBottom": "1px solid #333", "fontSize": "12px", "textAlign": "center",
-    }
-    td_style = {
-        "padding": "4px 10px", "color": "#ccc", "fontSize": "12px",
-        "textAlign": "center", "borderBottom": "1px solid #222",
-    }
-
-    # Extract run_id from store_data
+    # Extract run_id for Inspector links
     run_id = store_data.get("run_id", "unknown")
 
-    header_row = html.Tr([html.Th(h, style=th_style) for h in headers])
-    rows = [header_row]
-    for idx, t in enumerate(trades[:200]):  # cap at 200 rows for browser performance
-        cells = [html.Td(_fmt(t.get(col), col), style=td_style) for col in columns]
+    # Convert to DataFrame for easier manipulation
+    df = pd.DataFrame(trades[:200])  # cap at 200 rows for browser performance
 
-        # Add Inspect link cell (opens in new tab)
-        trade_id = t['trade_id']
+    # Format columns for display
+    if "entry_time" in df.columns:
+        df["Date"] = df["entry_time"].astype(str).str[:16]
+    if "composite_score" in df.columns:
+        df["CS"] = df["composite_score"].fillna(0).astype(float).round(0).astype(int)
+    if "regime" in df.columns:
+        df["Regime"] = df["regime"].fillna("").astype(str).str.upper()
+    if "entry_price" in df.columns:
+        df["Entry"] = df["entry_price"].apply(lambda x: f"{float(x):.5f}" if pd.notna(x) else "—")
+    if "partial_exit_price" in df.columns:
+        df["Part.Exit"] = df["partial_exit_price"].apply(lambda x: f"{float(x):.5f}" if pd.notna(x) else "—")
+    if "close_price" in df.columns:
+        df["Close"] = df["close_price"].apply(lambda x: f"{float(x):.5f}" if pd.notna(x) else "—")
+    if "r_multiple_total" in df.columns:
+        df["R-Mult"] = df["r_multiple_total"].apply(lambda x: f"{float(x):+.2f}R" if pd.notna(x) else "—")
+    if "pnl_usd" in df.columns:
+        df["PnL ($)"] = df["pnl_usd"].apply(lambda x: f"${float(x):+.2f}" if pd.notna(x) else "—")
 
-        inspect_cell = html.Td(
-            html.A(
-                "Inspect",
-                href=f"/inspector?run={run_id}&trade={trade_id}",
-                target="_blank",
-                className="inspect-link",
-                **{"data-trade-id": trade_id},
-                style={"color": "#4a90d9", "textDecoration": "none"},
-            ),
-            style=td_style,
-        )
-        cells.append(inspect_cell)
-        rows.append(html.Tr(cells, style={"backgroundColor": _row_bg(t)}))
+    # Add Inspect links
+    df["Inspect"] = df["trade_id"].apply(lambda tid: f"/inspector?run={run_id}&trade={tid}")
 
-    return [html.Table(
-        rows,
-        style={"width": "100%", "borderCollapse": "collapse",
-               "backgroundColor": "#16213e", "borderRadius": "4px"},
+    # Select and rename columns for display
+    display_cols = ["Date", "pair", "strategy", "direction", "CS", "Regime",
+                    "Entry", "Part.Exit", "Close", "close_reason", "R-Mult", "PnL ($)", "Inspect"]
+
+    # Filter to only existing columns
+    display_cols = [c for c in display_cols if c in df.columns]
+    df_display = df[display_cols].copy()
+
+    # Rename columns to proper headers
+    rename_map = {
+        "pair": "Pair",
+        "strategy": "Strategy",
+        "direction": "Dir",
+        "close_reason": "Reason",
+    }
+    df_display = df_display.rename(columns=rename_map)
+
+    # Define column configurations
+    columns = []
+    for col in df_display.columns:
+        col_config = {"name": col, "id": col}
+        if col == "Inspect":
+            col_config["presentation"] = "markdown"
+        columns.append(col_config)
+
+    # Convert Inspect URLs to markdown links
+    if "Inspect" in df_display.columns:
+        df_display["Inspect"] = df_display["Inspect"].apply(lambda url: f"[🔍]({url})")
+
+    # Convert to dict for DataTable
+    data = df_display.to_dict("records")
+
+    # Return DataTable with sorting enabled
+    return [dash_table.DataTable(
+        id="trade-table",
+        columns=columns,
+        data=data,
+        sort_action="native",  # Enable sorting
+        sort_mode="multi",     # Allow multi-column sorting
+        style_table={"overflowX": "auto"},
+        style_header={
+            "backgroundColor": "#16213e",
+            "color": "#aaa",
+            "fontWeight": "bold",
+            "fontSize": "12px",
+            "textAlign": "center",
+            "padding": "6px 10px",
+            "borderBottom": "1px solid #333",
+        },
+        style_cell={
+            "backgroundColor": "#16213e",
+            "color": "#ccc",
+            "fontSize": "12px",
+            "textAlign": "center",
+            "padding": "4px 10px",
+            "borderBottom": "1px solid #222",
+        },
+        style_data_conditional=[
+            # Green background for winning trades
+            {
+                "if": {"filter_query": "{R-Mult} contains '+'"},
+                "backgroundColor": "rgba(46,204,113,0.08)",
+            },
+            # Red background for losing trades
+            {
+                "if": {"filter_query": "{R-Mult} contains '-'"},
+                "backgroundColor": "rgba(231,76,60,0.08)",
+            },
+        ],
     )]
 
 

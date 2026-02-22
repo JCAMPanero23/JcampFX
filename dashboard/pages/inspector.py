@@ -41,7 +41,7 @@ layout = html.Div([
             dcc.Input(
                 id="bars-before-input",
                 type="number",
-                value=20,
+                value=30,
                 min=5,
                 max=100,
                 step=5,
@@ -51,7 +51,7 @@ layout = html.Div([
             dcc.Input(
                 id="bars-after-input",
                 type="number",
-                value=5,
+                value=15,
                 min=0,
                 max=50,
                 step=5,

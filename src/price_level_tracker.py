@@ -42,8 +42,14 @@ class PriceLevelTracker:
     """
 
     def __init__(self) -> None:
-        # Storage: {pair: deque[(price, timestamp, strategy, r_result)]}
+        # Closed trades storage: {pair: deque[(price, timestamp, strategy, r_result)]}
         self._history: dict[str, deque] = {}
+
+        # Approved entries storage (Phase 3.1.2.6): {pair: deque[(price, timestamp, strategy, trade_id)]}
+        # Tracks entries immediately when signals are approved (before trade execution)
+        # Prevents revenge trades from entering while the first trade is still open
+        self._approved_entries: dict[str, deque] = {}
+
         self._cooldown_hours = PRICE_LEVEL_COOLDOWN_HOURS
         self._cooldown_pips = PRICE_LEVEL_COOLDOWN_PIPS
         self._track_losses_only = PRICE_LEVEL_TRACK_LOSSES_ONLY
@@ -81,6 +87,65 @@ class PriceLevelTracker:
             pair, strategy, price, r_result, timestamp,
         )
 
+    def add_approved_entry(
+        self,
+        pair: str,
+        price: float,
+        strategy: str,
+        timestamp: datetime,
+        trade_id: str,
+    ) -> None:
+        """
+        Record an approved entry immediately when signal is approved (Phase 3.1.2.6).
+
+        This prevents revenge trades from entering while the first trade is still open.
+        Entries are removed when the trade closes (via remove_approved_entry).
+
+        Parameters
+        ----------
+        pair       : Canonical pair name (e.g., "USDJPY")
+        price      : Entry price (post-slippage)
+        strategy   : Strategy name (e.g., "TrendRider")
+        timestamp  : Signal approval time (entry time)
+        trade_id   : Trade ID for cleanup on close
+        """
+        if pair not in self._approved_entries:
+            self._approved_entries[pair] = deque(maxlen=100)
+
+        self._approved_entries[pair].append((price, timestamp, strategy, trade_id))
+
+        log.debug(
+            "PriceLevelTracker: approved entry %s/%s at %.5f @ %s (trade_id=%s)",
+            pair, strategy, price, timestamp, trade_id,
+        )
+
+    def remove_approved_entry(
+        self,
+        pair: str,
+        trade_id: str,
+    ) -> None:
+        """
+        Remove an approved entry when the trade closes (Phase 3.1.2.6).
+
+        Parameters
+        ----------
+        pair     : Canonical pair name
+        trade_id : Trade ID to remove
+        """
+        if pair not in self._approved_entries:
+            return
+
+        # Find and remove the entry with matching trade_id
+        self._approved_entries[pair] = deque(
+            [entry for entry in self._approved_entries[pair] if entry[3] != trade_id],
+            maxlen=100,
+        )
+
+        log.debug(
+            "PriceLevelTracker: removed approved entry %s (trade_id=%s)",
+            pair, trade_id,
+        )
+
     def is_blocked(
         self,
         pair: str,
@@ -89,9 +154,14 @@ class PriceLevelTracker:
         now: datetime,
     ) -> tuple[bool, Optional[str]]:
         """
-        Check if a new entry is blocked due to recent loss at this price level
+        Check if a new entry is blocked due to recent activity at this price level
         BY THE SAME STRATEGY within the cooldown window.
 
+        Checks BOTH:
+        1. Approved entries (trades currently open at this price level)
+        2. Closed losses (recent losing trades at this price level)
+
+        This prevents revenge trades from entering while the first trade is still open.
         Different strategies are allowed to enter at the same price level
         (different market regime, different entry logic).
 
@@ -106,9 +176,6 @@ class PriceLevelTracker:
         -------
         (is_blocked, reason_if_blocked)
         """
-        if pair not in self._history:
-            return False, None
-
         pip_size = PIP_SIZE.get(pair, 0.0001)
         if pip_size == 0:
             log.warning("PriceLevelTracker: unknown pip size for %s, skipping check", pair)
@@ -117,34 +184,59 @@ class PriceLevelTracker:
         price_threshold_distance = self._cooldown_pips * pip_size
         cutoff_time = now - timedelta(hours=self._cooldown_hours)
 
-        # Check recent losses for this pair
-        for loss_price, loss_time, loss_strategy, r_result in self._history[pair]:
-            # Skip if loss is outside cooldown window
-            if loss_time < cutoff_time:
-                continue
+        # --- Check 1: Approved entries (Phase 3.1.2.6 — prevent entries while first trade is open) ---
+        if pair in self._approved_entries:
+            for entry_price, entry_time, entry_strategy, trade_id in self._approved_entries[pair]:
+                # Skip if entry is outside cooldown window
+                if entry_time < cutoff_time:
+                    continue
 
-            # Skip if different strategy (allow cross-strategy entries)
-            if loss_strategy != strategy:
-                continue
+                # Skip if different strategy (allow cross-strategy entries)
+                if entry_strategy != strategy:
+                    continue
 
-            # Check if proposed price is within ±N pips of the loss price
-            price_distance = abs(price - loss_price)
-            if price_distance <= price_threshold_distance:
-                hours_ago = (now - loss_time).total_seconds() / 3600
-                reason = (
-                    f"PRICE_LEVEL_COOLDOWN:{strategy} lost {r_result:.2f}R at "
-                    f"{loss_price:.5f} ({hours_ago:.1f}h ago) — "
-                    f"new entry {price:.5f} within {self._cooldown_pips} pips"
-                )
-                log.info("PriceLevelTracker: BLOCKED %s — %s", pair, reason)
-                return True, reason
+                # Check if proposed price is within ±N pips of the approved entry price
+                price_distance = abs(price - entry_price)
+                if price_distance <= price_threshold_distance:
+                    hours_ago = (now - entry_time).total_seconds() / 3600
+                    reason = (
+                        f"PRICE_LEVEL_COOLDOWN:{strategy} has open position at "
+                        f"{entry_price:.5f} ({hours_ago:.1f}h ago) — "
+                        f"new entry {price:.5f} within {self._cooldown_pips} pips (trade_id={trade_id})"
+                    )
+                    log.info("PriceLevelTracker: BLOCKED %s — %s", pair, reason)
+                    return True, reason
+
+        # --- Check 2: Recent losses (original logic) ---
+        if pair in self._history:
+            for loss_price, loss_time, loss_strategy, r_result in self._history[pair]:
+                # Skip if loss is outside cooldown window
+                if loss_time < cutoff_time:
+                    continue
+
+                # Skip if different strategy (allow cross-strategy entries)
+                if loss_strategy != strategy:
+                    continue
+
+                # Check if proposed price is within ±N pips of the loss price
+                price_distance = abs(price - loss_price)
+                if price_distance <= price_threshold_distance:
+                    hours_ago = (now - loss_time).total_seconds() / 3600
+                    reason = (
+                        f"PRICE_LEVEL_COOLDOWN:{strategy} lost {r_result:.2f}R at "
+                        f"{loss_price:.5f} ({hours_ago:.1f}h ago) — "
+                        f"new entry {price:.5f} within {self._cooldown_pips} pips"
+                    )
+                    log.info("PriceLevelTracker: BLOCKED %s — %s", pair, reason)
+                    return True, reason
 
         return False, None
 
     def clear(self) -> None:
         """Clear all tracked price levels (for testing or reset)."""
         self._history.clear()
-        log.info("PriceLevelTracker: cleared all history")
+        self._approved_entries.clear()
+        log.info("PriceLevelTracker: cleared all history and approved entries")
 
     def get_history(self, pair: str) -> list[tuple[float, datetime, str, float]]:
         """

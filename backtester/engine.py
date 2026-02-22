@@ -432,6 +432,11 @@ class BacktestEngine:
                     timestamp=timestamp,
                     is_weekend_close=is_weekend,
                 )
+                # Remove approved entry (Phase 3.1.2.6 — cleanup when trade closes)
+                self._brain.price_level_tracker.remove_approved_entry(
+                    pair=trade.pair,
+                    trade_id=trade.trade_id,
+                )
                 # Report losing trades to price level tracker (revenge trade prevention)
                 if trade.r_multiple_total < 0:
                     self._brain.price_level_tracker.add_losing_trade(
@@ -489,6 +494,15 @@ class BacktestEngine:
             entry_bar_idx=signal.entry_bar_idx,
         )
         account.open_trade(trade)
+
+        # Track approved entry immediately (Phase 3.1.2.6 — prevent revenge trades while position is open)
+        self._brain.price_level_tracker.add_approved_entry(
+            pair=trade.pair,
+            price=entry_price,  # Post-slippage entry price
+            strategy=trade.strategy,
+            timestamp=timestamp,
+            trade_id=trade.trade_id,
+        )
 
     # ------------------------------------------------------------------
     # DCRD scoring (point-in-time)

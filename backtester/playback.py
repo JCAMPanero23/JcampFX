@@ -143,10 +143,11 @@ def get_trade_context(
     # The stored values are what were actually used for the entry decision
     if "composite_score" in trade_row and trade_row["composite_score"] is not None:
         dcrd_at_entry["composite_score"] = float(trade_row["composite_score"])
-        # Also update regime based on stored score
-        from src.dcrd.dcrd_engine import DCRDEngine
-        temp_engine = DCRDEngine()
-        dcrd_at_entry["regime"] = temp_engine.get_regime(dcrd_at_entry["composite_score"])
+
+    # Use STORED regime if available (don't re-derive from thresholds)
+    # The stored regime is what was actually used at entry time
+    if "regime" in trade_row and trade_row["regime"] is not None:
+        dcrd_at_entry["regime"] = str(trade_row["regime"])
 
     # Use stored L1/L2/L3 if available (v2.2.1+)
     if "layer1_structural" in trade_row and trade_row["layer1_structural"] is not None:

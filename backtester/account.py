@@ -114,16 +114,27 @@ class BacktestAccount:
         trade.r_multiple_partial = r_partial
         trade.atr14_at_partial = atr14
 
-        # Initialise Chandelier SL on the runner
-        trade.chandelier_sl = initial_chandelier_sl(
-            trade.entry_price, trade.sl_price, trade.direction, atr14, trade.pair
-        )
+        # Initialize trailing SL at partial exit price - buffer (Phase 3.1.1 — 3-bar SL system)
+        # At this point, price has moved to entry + 1.5R
+        pip = PIP_SIZE.get(trade.pair, 0.0001)
+        buffer_pips = 5
+        buffer_price = buffer_pips * pip
+
+        if trade.direction.upper() == "BUY":
+            # Start trailing SL at partial exit price - 5 pips
+            trade.trailing_sl = slipped_price - buffer_price
+        else:
+            trade.trailing_sl = slipped_price + buffer_price
+
+        # Initialize counter-trend tracking
+        trade.counter_trend_bar_count = 0
+        trade.last_bar_direction = "trend"  # Assume partial exit bar is trend-direction
 
         # Partial PnL (not yet in equity — added on full close)
         trade.phase = "runner"
         log.debug(
-            "Partial exit %s at %.5f (%.2fR) chandelier=%.5f",
-            trade.trade_id, slipped_price, r_partial, trade.chandelier_sl,
+            "Partial exit %s at %.5f (%.2fR) trailing_sl=%.5f",
+            trade.trade_id, slipped_price, r_partial, trade.trailing_sl,
         )
 
     def close_trade(

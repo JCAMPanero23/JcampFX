@@ -52,6 +52,11 @@ class BacktestTrade:
     partial_exit_time: Optional[pd.Timestamp] = None
     chandelier_sl: float = 0.0  # Set by initial_chandelier_sl() at partial exit
 
+    # Range Bar trailing exit fields (Phase 3.1.1 — 3-bar SL system)
+    trailing_sl: float = 0.0              # Range Bar trailing SL (replaces chandelier_sl)
+    counter_trend_bar_count: int = 0      # Consecutive counter-trend bars in runner
+    last_bar_direction: str = ""          # "trend" or "counter" (for tracking consecutive)
+
     # Close (populated when trade ends)
     close_price: float = 0.0
     close_time: Optional[pd.Timestamp] = None

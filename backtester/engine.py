@@ -309,6 +309,7 @@ class BacktestEngine:
         bar_high = float(bar["high"])
         bar_low = float(bar["low"])
         bar_close = float(bar["close"])
+        bar_open = float(bar["open"])
 
         # v2.2: determine exit fill price — phantom bars fill at tick boundary (VP.6)
         is_phantom_bar = bool(bar.get("is_phantom", False))
@@ -342,26 +343,62 @@ class BacktestEngine:
                 account.apply_partial_exit(trade, fill_1_5r, timestamp, atr14)
 
         elif trade.phase == "runner":
-            # v2.2 (VD.9, VE.8): Regime deterioration force-close
+            # 1. Regime deterioration check (keep as-is)
             if should_force_close_runner(trade.composite_score, current_composite_score):
                 fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else bar_close
                 account.close_trade(trade, fill_price, timestamp, "REGIME_DETERIORATION")
                 return
 
-            # Update Chandelier with bar extreme
-            bar_extreme = bar_high if trade.direction.upper() == "BUY" else bar_low
-            account.update_chandelier_for_trade(trade, bar_extreme, atr14)
-
-            # Check Chandelier hit
-            chandelier_hit = (
-                bar_low <= trade.chandelier_sl
-                if trade.direction.upper() == "BUY"
-                else bar_high >= trade.chandelier_sl
+            # 2. Determine bar direction (Phase 3.1.1 — Range Bar trailing)
+            bar_is_trend_direction = (
+                (trade.direction.upper() == "BUY" and bar_close >= bar_open) or
+                (trade.direction.upper() == "SELL" and bar_close <= bar_open)
             )
-            if chandelier_hit:
-                # v2.2 (VP.6): phantom bar chandelier exits fill at tick boundary
-                fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else trade.chandelier_sl
-                account.close_trade(trade, fill_price, timestamp, "CHANDELIER_HIT")
+
+            # 3. Track consecutive counter-trend bars
+            if not bar_is_trend_direction:
+                # Counter-trend bar
+                if trade.last_bar_direction == "counter":
+                    trade.counter_trend_bar_count += 1
+                else:
+                    trade.counter_trend_bar_count = 1
+                    trade.last_bar_direction = "counter"
+
+                # 2-bar auto-close rule
+                if trade.counter_trend_bar_count >= 2:
+                    fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else bar_close
+                    account.close_trade(trade, fill_price, timestamp, "TWO_BAR_COUNTER_CLOSE")
+                    return
+            else:
+                # Trend-direction bar — reset counter and trail SL
+                trade.counter_trend_bar_count = 0
+                trade.last_bar_direction = "trend"
+
+                # Trail SL to new bar low/high - 5 pips
+                pip = PIP_SIZE.get(trade.pair, 0.0001)
+                buffer_pips = 5
+                buffer_price = buffer_pips * pip
+
+                if trade.direction.upper() == "BUY":
+                    proposed_sl = bar_low - buffer_price
+                    # Never move SL backwards (only tighten)
+                    if proposed_sl > trade.trailing_sl:
+                        trade.trailing_sl = proposed_sl
+                else:  # SELL
+                    proposed_sl = bar_high + buffer_price
+                    # Never move SL backwards (only tighten)
+                    if proposed_sl < trade.trailing_sl:
+                        trade.trailing_sl = proposed_sl
+
+            # 4. Check trailing SL hit
+            sl_hit = (
+                bar_low <= trade.trailing_sl
+                if trade.direction.upper() == "BUY"
+                else bar_high >= trade.trailing_sl
+            )
+            if sl_hit:
+                fill_price = tick_boundary if (is_phantom_bar or is_gap_adj) else trade.trailing_sl
+                account.close_trade(trade, fill_price, timestamp, "TRAILING_SL_HIT")
 
     # ------------------------------------------------------------------
     # Performance tracker feedback

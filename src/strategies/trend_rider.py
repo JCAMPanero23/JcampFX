@@ -24,7 +24,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from src.config import PIP_SIZE, STRATEGY_TRENDRIDER_MIN_CS
+from src.config import PIP_SIZE, RANGE_BAR_PIPS, STRATEGY_TRENDRIDER_MIN_CS
 from src.exit_manager import get_partial_exit_pct
 from src.signal import Signal
 from src.strategies.base_strategy import BaseStrategy
@@ -140,6 +140,7 @@ def _detect_3bar_staircase(range_bars: pd.DataFrame, direction: str, lookback: i
 def _find_pullback_entry(
     range_bars: pd.DataFrame,
     direction: str,
+    pair: str,
     lookback: int = 10,
 ) -> Optional[tuple[float, float, float]]:
     """
@@ -194,18 +195,20 @@ def _find_pullback_entry(
 
     entry = closes[last_idx]
 
+    # Fixed SL at 3× Range Bar size (Phase 3.1.1 — 3-bar SL system)
+    # EURUSD/GBPUSD/USDCHF: 20-pip bars → 60 pips SL
+    # USDJPY/AUDJPY: 25-pip bars → 75 pips SL
+    bar_size_pips = RANGE_BAR_PIPS.get(pair, 20)  # 20 or 25
+    sl_distance_pips = 3 * bar_size_pips           # 60 or 75 pips
+    pip = PIP_SIZE.get(pair, 0.0001)
+    sl_distance_price = sl_distance_pips * pip
+
     if direction == "BUY":
-        sl = lows[last_idx - 1]           # pullback bar's structural low
-        r_dist = abs(entry - sl)
-        if r_dist <= 0:
-            return None
-        tp_1r = entry + r_dist
+        sl = entry - sl_distance_price
+        tp_1r = entry + sl_distance_price
     else:
-        sl = highs[last_idx - 1]          # pullback bar's structural high
-        r_dist = abs(entry - sl)
-        if r_dist <= 0:
-            return None
-        tp_1r = entry - r_dist
+        sl = entry + sl_distance_price
+        tp_1r = entry - sl_distance_price
 
     return entry, sl, tp_1r
 
@@ -289,31 +292,19 @@ class TrendRider(BaseStrategy):
             return None
 
         # Step 4: Find pullback entry
-        setup = _find_pullback_entry(range_bars, direction)
+        pair = news_state.get("pair", "UNKNOWN")
+        setup = _find_pullback_entry(range_bars, direction, pair)
         if setup is None:
             return None
 
         entry, sl, tp_1r = setup
-        pair = news_state.get("pair", "UNKNOWN")
         timestamp = range_bars.iloc[-1]["end_time"] if "end_time" in range_bars.columns else pd.Timestamp.utcnow()
 
         partial_pct = get_partial_exit_pct(composite_score)
 
         pip = PIP_SIZE.get(pair, 0.0001)
 
-        # CRITICAL: Validate minimum SL distance (PRD v2.2 bug fix - trade 9bb53c06)
-        # Without this, shallow pullbacks create SL too close to entry
-        # causing inflated negative R-multiples (e.g. -6.00R instead of -1.05R max)
-        # Root cause: pullback bar's extreme can be within 0.2 pips of entry
-        MIN_SL_PIPS = 10  # 10 pips minimum for all pairs
-        r_dist = abs(entry - sl)
-        r_dist_pips = r_dist / pip
-        if r_dist < MIN_SL_PIPS * pip:
-            log.debug(
-                "TrendRider: SL too tight (%.2f pips < %d pips min) -- skip signal",
-                r_dist_pips, MIN_SL_PIPS
-            )
-            return None
+        # NOTE: MIN_SL_PIPS check removed — fixed 60/75 pip SL always exceeds minimum
         pullback_bar_abs_idx = len(range_bars) - 2
         entry_bar_abs_idx = len(range_bars) - 1
         pullback_bar = range_bars.iloc[-2]

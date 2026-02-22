@@ -48,3 +48,7 @@ backtester/results/*.pkl
 
 # Claude Code local settings
 .claude/settings.local.json
+
+# Config overrides (temporary test settings)
+config_overrides.json
+config_defaults_backup.json

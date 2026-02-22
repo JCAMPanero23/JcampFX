@@ -57,6 +57,8 @@ from src.config import (
     NEWS_POST_EVENT_MIN_CS,
     PAIRS,
     PHANTOM_DETECTION_ENABLED,
+    PIP_SIZE,
+    SLIPPAGE_PIPS,
 )
 from src.exit_manager import get_partial_exit_pct
 from src.news_layer import NewsLayer
@@ -309,10 +311,15 @@ class BrainCore:
         if signal is None:
             return None
 
-        # --- Gate 8.5: Price level cooldown (Phase 3.1.1 — revenge trade prevention) ---
+        # --- Gate 8.5: Price level cooldown (Phase 3.1.2.5 — revenge trade prevention) ---
+        # CRITICAL: Check post-slippage price to match what will be recorded after trade execution
+        pip = PIP_SIZE.get(pair, 0.0001)
+        slip = SLIPPAGE_PIPS * pip
+        slipped_entry = (signal.entry + slip) if signal.direction.upper() == "BUY" else (signal.entry - slip)
+
         is_blocked, block_reason = self.price_level_tracker.is_blocked(
             pair=pair,
-            price=signal.entry,
+            price=slipped_entry,  # Use post-slippage price (matches recorded entry)
             strategy=active_strategy.name,
             now=current_time,
         )

@@ -1033,7 +1033,7 @@ def _build_trade_table(store_data: dict) -> list:
 
     # Convert Inspect URLs to markdown links
     if "Inspect" in df_display.columns:
-        df_display["Inspect"] = df_display["Inspect"].apply(lambda url: f"[🔍]({url})")
+        df_display["Inspect"] = df_display["Inspect"].apply(lambda url: f"[Inspect]({url})")
 
     # Convert to dict for DataTable
     data = df_display.to_dict("records")

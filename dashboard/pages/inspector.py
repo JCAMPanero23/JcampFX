@@ -35,6 +35,7 @@ layout = html.Div([
     # Header with controls
     html.Div([
         html.H2("Trade Inspector", style={"margin": "0", "color": "#1a1a1a", "display": "inline-block", "marginRight": "30px"}),
+        html.Span(id="inspector-run-id-display", style={"color": "#666", "fontSize": "12px", "fontFamily": "monospace", "marginRight": "30px"}),
         html.Div([
             html.Label("Bars Before Entry:", style={"color": "#666", "fontSize": "12px", "marginRight": "8px"}),
             dcc.Input(
@@ -97,6 +98,7 @@ layout = html.Div([
         Output("inspector-run-id", "data"),
         Output("inspector-trade-id", "data"),
         Output("inspector-all-trade-ids", "data"),
+        Output("inspector-run-id-display", "children"),
     ],
     [
         Input("url", "search"),  # URL query string: ?run=X&trade=Y
@@ -141,6 +143,7 @@ def load_inspector_view(search_query: str | None, n_clicks: int, pathname: str |
                 None,
                 None,
                 [],
+                "",
             )
 
         # Build run directory path
@@ -153,6 +156,7 @@ def load_inspector_view(search_query: str | None, n_clicks: int, pathname: str |
                 None,
                 None,
                 [],
+                "",
             )
 
         # Load all trade IDs for prev/next navigation
@@ -182,6 +186,7 @@ def load_inspector_view(search_query: str | None, n_clicks: int, pathname: str |
                 run_id,
                 trade_id,
                 all_trade_ids,
+                f"Run: {run_id}" if run_id else "",
             )
 
         # Build metadata panel
@@ -195,7 +200,8 @@ def load_inspector_view(search_query: str | None, n_clicks: int, pathname: str |
         print(f"[Inspector] Chart built with {len(chart_fig.data)} traces", flush=True)
 
         print(f"[Inspector] Returning successful result", flush=True)
-        return metadata_panel, chart_fig, run_id, trade_id, all_trade_ids
+        run_id_display = f"Run: {run_id}" if run_id else ""
+        return metadata_panel, chart_fig, run_id, trade_id, all_trade_ids, run_id_display
 
     except Exception as e:
         # Catch ANY error and print full traceback

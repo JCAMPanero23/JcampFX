@@ -307,7 +307,10 @@ _tab2_layout = html.Div(
 
         # Trade log table
         html.Div([
-            html.H4("Trade Log", style={"color": "#aaa", "fontSize": "13px", "margin": "0 0 4px 0"}),
+            html.Div([
+                html.H4("Trade Log", style={"color": "#aaa", "fontSize": "13px", "margin": "0", "display": "inline-block", "marginRight": "15px"}),
+                html.Span(id="trade-log-run-id", style={"color": "#666", "fontSize": "11px", "fontFamily": "monospace"}),
+            ], style={"marginBottom": "4px"}),
             html.Div(id="cinema-trade-table", style={"overflowX": "auto"}),
         ], id="trade-table-container"),
 
@@ -1206,6 +1209,7 @@ def cinema_run_or_load(run_clicks, load_clicks, pairs, start_date, end_date, mod
     Output("cinema-dcrd-chart", "figure"),
     Output("cinema-rb-chart", "figure"),
     Output("cinema-trade-table", "children"),
+    Output("trade-log-run-id", "children"),
     Input("cinema-results-store", "data"),
     Input("cinema-rb-pair", "value"),
 )
@@ -1216,14 +1220,16 @@ def cinema_update_charts(store_data, rb_pair):
         return (
             empty, empty, empty,
             [html.P("No results loaded.", style={"color": "#666", "fontSize": "13px"})],
+            "",
         )
 
     equity_fig = _build_equity_figure(store_data)
     dcrd_fig = _build_dcrd_figure(store_data)
     rb_fig = _build_rb_figure(store_data, rb_pair or PAIRS[0])
     trade_tbl = _build_trade_table(store_data)
+    run_id_label = f"Run: {store_data.get('run_id', 'unknown')}" if store_data.get('run_id') else ""
 
-    return equity_fig, dcrd_fig, rb_fig, trade_tbl
+    return equity_fig, dcrd_fig, rb_fig, trade_tbl, run_id_label
 
 
 # ---------------------------------------------------------------------------

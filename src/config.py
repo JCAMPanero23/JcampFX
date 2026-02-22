@@ -109,6 +109,11 @@ COOLDOWN_LOSSES_IN_WINDOW = 5     # Consecutive losses in last N trades
 COOLDOWN_WINDOW = 10              # Rolling window size
 COOLDOWN_HOURS = 24
 
+# Price level cooldown (Phase 3.1.1 — revenge trade elimination)
+PRICE_LEVEL_COOLDOWN_PIPS = 20      # Block re-entry within ±N pips of recent loss
+PRICE_LEVEL_COOLDOWN_HOURS = 4      # Cooldown duration (configurable)
+PRICE_LEVEL_TRACK_LOSSES_ONLY = True  # Only track losing trades (R < 0)
+
 # Strategy regime boundaries
 STRATEGY_TRENDRIDER_MIN_CS = 70
 STRATEGY_BREAKOUTRIDER_MIN_CS = 30

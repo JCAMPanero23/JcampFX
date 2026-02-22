@@ -365,8 +365,12 @@ class BacktestEngine:
         is_weekend: bool = False,
     ) -> None:
         """
-        Report newly-closed trades to BrainCore's performance tracker.
-        This enables the strategy cooldown system to function in backtests.
+        Report newly-closed trades to BrainCore's performance tracker
+        and price level tracker.
+
+        This enables:
+        - Strategy cooldown system to function in backtests
+        - Price level cooldown (Phase 3.1.1 — revenge trade prevention)
         """
         current_open_ids = {t.trade_id for t in account.open_trades}
         just_closed_ids = open_ids_before - current_open_ids
@@ -374,12 +378,22 @@ class BacktestEngine:
             return
         for trade in account.closed_trades:
             if trade.trade_id in just_closed_ids:
+                # Report to performance tracker (strategy cooldown)
                 self._brain.performance_tracker.add_trade(
                     strategy=trade.strategy,
                     r_result=float(trade.r_multiple_total),
                     timestamp=timestamp,
                     is_weekend_close=is_weekend,
                 )
+                # Report losing trades to price level tracker (revenge trade prevention)
+                if trade.r_multiple_total < 0:
+                    self._brain.price_level_tracker.add_losing_trade(
+                        pair=trade.pair,
+                        price=trade.entry_price,
+                        strategy=trade.strategy,
+                        timestamp=timestamp,
+                        r_result=float(trade.r_multiple_total),
+                    )
 
     # ------------------------------------------------------------------
     # Trade opening

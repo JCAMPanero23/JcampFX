@@ -61,6 +61,7 @@ from src.config import (
 from src.exit_manager import get_partial_exit_pct
 from src.news_layer import NewsLayer
 from src.performance_tracker import PerformanceTracker
+from src.price_level_tracker import PriceLevelTracker
 from src.risk_engine import compute_trade_risk
 from src.session_filter import SessionFilter, get_session_tag
 from src.signal import Signal
@@ -142,10 +143,12 @@ class BrainCore:
         self,
         performance_tracker: Optional[PerformanceTracker] = None,
         news_layer: Optional[NewsLayer] = None,
+        price_level_tracker: Optional[PriceLevelTracker] = None,
     ) -> None:
         self.performance_tracker = performance_tracker or PerformanceTracker()
         self.news_layer = news_layer or NewsLayer()
         self.session_filter = SessionFilter()
+        self.price_level_tracker = price_level_tracker or PriceLevelTracker()
         self._strategies: list[BaseStrategy] = []
         self._auto_register_strategies()
 
@@ -300,6 +303,17 @@ class BrainCore:
         signal = active_strategy.analyze(range_bars, ohlc_4h, ohlc_1h, composite_score, news_state)
         if signal is None:
             return None
+
+        # --- Gate 8.5: Price level cooldown (Phase 3.1.1 — revenge trade prevention) ---
+        is_blocked, block_reason = self.price_level_tracker.is_blocked(
+            pair=pair,
+            price=signal.entry,
+            strategy=active_strategy.name,
+            now=current_time,
+        )
+        if is_blocked:
+            signal.blocked_reason = block_reason
+            return signal  # Return blocked signal for logging
 
         # --- Gate 9: Correlation filter ---
         passes_corr, corr_reason = _passes_correlation_filter(pair, account_state)

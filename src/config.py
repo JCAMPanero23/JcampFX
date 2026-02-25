@@ -101,7 +101,7 @@ NEWS_POST_EVENT_COOL_MIN = 15
 NEWS_POST_EVENT_MIN_CS = 80   # Only CS > 80 signals allowed during cool
 
 # DCRD anti-flipping filter (PRD §3.6)
-ANTI_FLIP_THRESHOLD_PTS = 15  # Must cross by >= 15 points
+ANTI_FLIP_THRESHOLD_PTS = 10  # Phase 3.4: Reduced from 15 (allows CS=100 to cross CS≥90 boundary)
 ANTI_FLIP_PERSISTENCE = 2     # Must persist for >= 2 consecutive 4H closes
 
 # Strategy cooldown (PRD §10.3)
@@ -115,7 +115,7 @@ PRICE_LEVEL_COOLDOWN_HOURS = 4      # Cooldown duration (configurable)
 PRICE_LEVEL_TRACK_LOSSES_ONLY = True  # Only track losing trades (R < 0)
 
 # Strategy regime boundaries
-STRATEGY_TRENDRIDER_MIN_CS = 70
+STRATEGY_TRENDRIDER_MIN_CS = 90  # Phase 3.4: Raised from 70 (avg winner CS = 95.5)
 STRATEGY_BREAKOUTRIDER_MIN_CS = 30
 STRATEGY_RANGERIDER_MAX_CS = 30
 

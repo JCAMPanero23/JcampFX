@@ -320,10 +320,52 @@ def _build_inspector_chart(ctx: dict, context_bars: int = 20) -> go.Figure:
         shared_xaxes=True,
         vertical_spacing=0.03,
         row_heights=[0.75, 0.25],  # Give more space to price action
-        subplot_titles=("Range Bar Price Action", "DCRD Composite Score"),
+        subplot_titles=("Range Bar Price Action (M15 Shadow)", "DCRD Composite Score"),
     )
 
-    # === Top panel: Range Bar candlesticks ===
+    # === Load M15 candlesticks for background (if available) ===
+    pair = trade["pair"]
+    m15_path = Path("data/ohlc") / f"{pair}_M15.parquet"
+    if m15_path.exists():
+        try:
+            m15_df = pd.read_parquet(m15_path)
+            m15_df["time"] = pd.to_datetime(m15_df["time"], utc=True)
+
+            # Filter M15 bars to the range bar window
+            rb_start = rb["start_time"].min()
+            rb_end = rb["end_time"].max()
+            m15_filtered = m15_df[(m15_df["time"] >= rb_start) & (m15_df["time"] <= rb_end)].copy()
+
+            if not m15_filtered.empty:
+                # Map M15 times to Range Bar indices (for x-axis alignment)
+                m15_x = []
+                for m15_time in m15_filtered["time"]:
+                    # Find the closest range bar index
+                    closest_idx = (rb["end_time"] - m15_time).abs().idxmin()
+                    m15_x.append(closest_idx)
+
+                # Add M15 candlesticks as transparent background (60% transparent)
+                fig.add_trace(
+                    go.Candlestick(
+                        x=m15_x,
+                        open=m15_filtered["open"],
+                        high=m15_filtered["high"],
+                        low=m15_filtered["low"],
+                        close=m15_filtered["close"],
+                        name="M15 Shadow",
+                        increasing_line_color="rgba(38,166,154,0.40)",  # 60% transparent green
+                        decreasing_line_color="rgba(239,83,80,0.40)",   # 60% transparent red
+                        increasing_fillcolor="rgba(38,166,154,0.25)",
+                        decreasing_fillcolor="rgba(239,83,80,0.25)",
+                        showlegend=True,
+                        opacity=0.40,  # 60% transparent (40% visible)
+                    ),
+                    row=1, col=1,
+                )
+        except Exception as e:
+            log.warning(f"Failed to load M15 data for {pair}: {e}")
+
+    # === Top panel: Range Bar candlesticks (on top of M15 shadow) ===
     fig.add_trace(
         go.Candlestick(
             x=rb.index,
@@ -334,7 +376,7 @@ def _build_inspector_chart(ctx: dict, context_bars: int = 20) -> go.Figure:
             name="Range Bars",
             increasing_line_color="#26a69a",
             decreasing_line_color="#ef5350",
-            showlegend=False,  # Don't clutter legend with candlesticks
+            showlegend=True,  # Show in legend now that we have M15 shadow
         ),
         row=1, col=1,
     )

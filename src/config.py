@@ -115,7 +115,7 @@ PRICE_LEVEL_COOLDOWN_HOURS = 4      # Cooldown duration (configurable)
 PRICE_LEVEL_TRACK_LOSSES_ONLY = True  # Only track losing trades (R < 0)
 
 # Strategy regime boundaries
-STRATEGY_TRENDRIDER_MIN_CS = 90  # Phase 3.4 Filter 1: Raised from 70 (avg winner CS = 95.5)
+STRATEGY_TRENDRIDER_MIN_CS = 70  # Phase 3.4: Optimal (CS≥70 + Session Filter = +$147, 49.6% WR)
 STRATEGY_BREAKOUTRIDER_MIN_CS = 30
 STRATEGY_RANGERIDER_MAX_CS = 30
 

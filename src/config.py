@@ -115,9 +115,14 @@ PRICE_LEVEL_COOLDOWN_HOURS = 4      # Cooldown duration (configurable)
 PRICE_LEVEL_TRACK_LOSSES_ONLY = True  # Only track losing trades (R < 0)
 
 # Strategy regime boundaries
-STRATEGY_TRENDRIDER_MIN_CS = 90  # Phase 3.4: Raised from 70 (avg winner CS = 95.5)
+STRATEGY_TRENDRIDER_MIN_CS = 90  # Phase 3.4 Filter 1: Raised from 70 (avg winner CS = 95.5)
 STRATEGY_BREAKOUTRIDER_MIN_CS = 30
 STRATEGY_RANGERIDER_MAX_CS = 30
+
+# Phase 3.4 Filter 2: Session Quality (strengthened Tokyo filter)
+# Entry quality analysis: Tokyo-only = 66.7% SL hit rate vs NY = 55.2%
+# TrendRider now requires London or NY session (blocks Tokyo-only for ALL pairs)
+FILTER_2_SESSION_QUALITY_ENABLED = True  # Set False to revert to old behavior
 
 # Partial exit regime thresholds (PRD §5.1)
 PARTIAL_EXIT_TIERS = [

@@ -125,8 +125,13 @@ def get_session_tag(utc_time: datetime | pd.Timestamp) -> str:
 
 def is_trend_rider_allowed(pair: str, utc_time: datetime | pd.Timestamp) -> tuple[bool, str]:
     """
-    TrendRider hard filter: blocked during Tokyo for EUR/GBP/CHF pairs.
-    Also blocked during Off-Hours for all pairs.
+    TrendRider hard filter (Phase 3.4 Filter 2):
+    - Blocked during Off-Hours for all pairs
+    - Blocked during Tokyo-only for ALL pairs (not just EUR/GBP/CHF)
+    - Requires London or NY session for entry
+
+    Entry quality analysis showed Tokyo-only has 66.7% SL hit rate vs 55.2% for NY.
+    Filter 2 strengthens session requirements to improve entry quality.
 
     VS.2: TrendRider blocked from EURUSD during Tokyo session (hard filter).
 
@@ -134,12 +139,19 @@ def is_trend_rider_allowed(pair: str, utc_time: datetime | pd.Timestamp) -> tupl
     """
     sessions = get_active_sessions(utc_time)
 
+    # Block Off-Hours (no major session active)
     if SESSION_OFF_HOURS in sessions and SESSION_LONDON not in sessions and SESSION_NY not in sessions:
         return False, f"SESSION_BLOCKED:TrendRider:Off-Hours:{pair}"
 
-    if SESSION_TOKYO in sessions and pair in _TOKYO_BLOCKED_PAIRS:
-        if SESSION_LONDON not in sessions:  # Allow 07:00–09:00 overlap
-            return False, f"SESSION_BLOCKED:TrendRider:Tokyo:{pair}"
+    # Filter 2 (Phase 3.4): Block Tokyo-only for ALL pairs
+    # Require at least London or NY session active (not just Tokyo)
+    if SESSION_TOKYO in sessions:
+        if SESSION_LONDON not in sessions and SESSION_NY not in sessions:
+            return False, f"SESSION_BLOCKED:TrendRider:Tokyo-only:{pair}"
+
+    # Require at least one major session (London or NY) active
+    if SESSION_LONDON not in sessions and SESSION_NY not in sessions:
+        return False, f"SESSION_BLOCKED:TrendRider:No-major-session:{pair}"
 
     return True, ""
 

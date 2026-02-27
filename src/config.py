@@ -48,14 +48,15 @@ PIP_SIZE: dict[str, float] = {
     "AUDUSD": 0.0001,
 }
 
-# Range Bar sizes in pips (v2.2 — 20-pip migration, PRD §7.3)
-# Majors: 20 pips; JPY pairs: 25 pips; Gold: 50 pips (unlocks at $2k)
+# Range Bar sizes in pips (Phase 3.5 — middle ground test)
+# Majors: 15 pips; JPY pairs: 20 pips; Gold: 50 pips (unlocks at $2k)
+# Compromise between swing (20/25) and intraday (10/15)
 RANGE_BAR_PIPS: dict[str, int] = {
-    "EURUSD": 20,
-    "GBPUSD": 20,
-    "USDJPY": 25,
-    "AUDJPY": 25,
-    "USDCHF": 20,
+    "EURUSD": 15,
+    "GBPUSD": 15,
+    "USDJPY": 20,
+    "AUDJPY": 20,
+    "USDCHF": 15,
     "XAUUSD": 50,  # Gold placeholder — not used until $2k
 }
 
@@ -83,9 +84,9 @@ EQUITY_UPGRADE_THRESHOLD = 1000.0
 MAX_DAILY_TRADES = 5
 DAILY_LOSS_CAP_R = 2.0        # CLOSE_ALL + PAUSE at −2R/day
 
-# Chandelier SL floors in pips (PRD §5.1)
-CHANDELIER_FLOOR_MAJORS = 15  # EURUSD, GBPUSD, USDCHF
-CHANDELIER_FLOOR_JPY = 25     # USDJPY, AUDJPY
+# Chandelier SL floors in pips (Phase 3.5 — adjusted for 15/20-pip bars)
+CHANDELIER_FLOOR_MAJORS = 15  # EURUSD, GBPUSD, USDCHF (matches bar size)
+CHANDELIER_FLOOR_JPY = 20     # USDJPY, AUDJPY (matches bar size)
 
 JPY_PAIRS = {"USDJPY", "AUDJPY"}
 
@@ -131,8 +132,8 @@ FILTER_2_SESSION_QUALITY_ENABLED = True  # Set False to revert to old behavior
 BREAKOUT_BB_COMPRESSION_PERCENTILE = 20  # Not used (BreakoutRider disabled)
 
 # Pivot Level Filter for TrendRider (Optional quality enhancement)
-TRENDRIDER_PIVOT_FILTER_ENABLED = False   # TESTING: Disable to check trade frequency
-TRENDRIDER_PIVOT_ZONE_PIPS = 10.0        # Distance to pivot level (S1/S2/R1/R2/Pivot)
+TRENDRIDER_PIVOT_FILTER_ENABLED = False   # Disabled - pivot filter degraded results
+TRENDRIDER_PIVOT_ZONE_PIPS = 10.0         # Distance to pivot level (S1/S2/R1/R2/Pivot)
 
 # Partial exit regime thresholds (PRD §5.1)
 PARTIAL_EXIT_TIERS = [

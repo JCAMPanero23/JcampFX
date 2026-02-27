@@ -289,7 +289,7 @@ class TrendRider(BaseStrategy):
             if dcrd_momentum < 0:
                 return None
 
-        # Step 3: Confirm ADX > 25 (Phase 3.4 Option C: removed "rising" requirement)
+        # Step 3: Confirm ADX > 25 (Option C: removed "rising" requirement)
         # ADX must be above threshold but no longer required to be rising
         # This allows entries during stable trends (not just accelerating trends)
         adx = _adx_1h(ohlc_1h)

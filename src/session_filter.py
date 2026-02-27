@@ -125,33 +125,38 @@ def get_session_tag(utc_time: datetime | pd.Timestamp) -> str:
 
 def is_trend_rider_allowed(pair: str, utc_time: datetime | pd.Timestamp) -> tuple[bool, str]:
     """
-    TrendRider hard filter (Phase 3.4 Filter 2):
+    TrendRider hard filter (Phase 3.4 Filter 2 + Option C):
     - Blocked during Off-Hours for all pairs
-    - Blocked during Tokyo-only for ALL pairs (not just EUR/GBP/CHF)
-    - Requires London or NY session for entry
+    - Blocked during Tokyo-only for NON-JPY pairs (EURUSD, GBPUSD, USDCHF)
+    - ALLOWED during Tokyo for JPY pairs (USDJPY, AUDJPY) — Option C trade frequency optimization
+    - Requires London or NY session for entry (unless JPY pair during Tokyo)
 
-    Entry quality analysis showed Tokyo-only has 66.7% SL hit rate vs 55.2% for NY.
-    Filter 2 strengthens session requirements to improve entry quality.
+    Entry quality analysis showed Tokyo-only has 66.7% SL hit rate for EUR/GBP/CHF vs 55.2% for NY.
+    JPY pairs benefit from Tokyo session liquidity (home market).
 
     VS.2: TrendRider blocked from EURUSD during Tokyo session (hard filter).
 
     Returns (allowed, reason_if_blocked).
     """
     sessions = get_active_sessions(utc_time)
+    is_jpy_pair = pair in _JPY_PAIR_SET
 
     # Block Off-Hours (no major session active)
     if SESSION_OFF_HOURS in sessions and SESSION_LONDON not in sessions and SESSION_NY not in sessions:
         return False, f"SESSION_BLOCKED:TrendRider:Off-Hours:{pair}"
 
-    # Filter 2 (Phase 3.4): Block Tokyo-only for ALL pairs
-    # Require at least London or NY session active (not just Tokyo)
+    # Filter 2 (Phase 3.4 + Option C): Block Tokyo-only for NON-JPY pairs only
+    # JPY pairs are ALLOWED during Tokyo session (home market advantage)
     if SESSION_TOKYO in sessions:
         if SESSION_LONDON not in sessions and SESSION_NY not in sessions:
-            return False, f"SESSION_BLOCKED:TrendRider:Tokyo-only:{pair}"
+            if not is_jpy_pair:
+                return False, f"SESSION_BLOCKED:TrendRider:Tokyo-only:{pair}"
+            # JPY pairs allowed during Tokyo — skip to final check
 
-    # Require at least one major session (London or NY) active
+    # Require at least one major session (London, NY, or Tokyo for JPY) active
     if SESSION_LONDON not in sessions and SESSION_NY not in sessions:
-        return False, f"SESSION_BLOCKED:TrendRider:No-major-session:{pair}"
+        if not (is_jpy_pair and SESSION_TOKYO in sessions):
+            return False, f"SESSION_BLOCKED:TrendRider:No-major-session:{pair}"
 
     return True, ""
 

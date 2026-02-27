@@ -57,6 +57,7 @@ class BaseStrategy(ABC):
         composite_score: float,
         news_state: dict,
         dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum
+        **kwargs,  # Phase 3.4: Accept optional params (e.g., ohlc_m15 for PivotScalper)
     ) -> Optional[Signal]:
         """
         Analyze market data and return a Signal or None.

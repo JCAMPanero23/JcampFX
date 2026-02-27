@@ -77,8 +77,8 @@ MIN_LOT = 0.01                # MT5 minimum lot size
 MAX_LOT = 5.0                 # Hard safety cap — prevents runaway compounding
 
 # Portfolio limits (PRD §1.2)
-MAX_CONCURRENT_POSITIONS = 2
-MAX_CONCURRENT_UPGRADED = 3   # Unlocks when equity > $1,000
+MAX_CONCURRENT_POSITIONS = 5  # Phase 3.4: Increased to allow more simultaneous trades
+MAX_CONCURRENT_UPGRADED = 5   # Same as base (already at max)
 EQUITY_UPGRADE_THRESHOLD = 1000.0
 MAX_DAILY_TRADES = 5
 DAILY_LOSS_CAP_R = 2.0        # CLOSE_ALL + PAUSE at −2R/day
@@ -115,14 +115,24 @@ PRICE_LEVEL_COOLDOWN_HOURS = 4      # Cooldown duration (configurable)
 PRICE_LEVEL_TRACK_LOSSES_ONLY = True  # Only track losing trades (R < 0)
 
 # Strategy regime boundaries
-STRATEGY_TRENDRIDER_MIN_CS = 70  # Phase 3.4: Optimal (CS≥70 + Session Filter = +$147, 49.6% WR)
-STRATEGY_BREAKOUTRIDER_MIN_CS = 30
+STRATEGY_TRENDRIDER_MIN_CS = 30  # Phase 3.4: Extended to Transitional regime (CS 30-100)
+STRATEGY_BREAKOUTRIDER_MIN_CS = 999  # DISABLED (broken strategy, 0-4 trades, losing)
 STRATEGY_RANGERIDER_MAX_CS = 30
 
 # Phase 3.4 Filter 2: Session Quality (strengthened Tokyo filter)
 # Entry quality analysis: Tokyo-only = 66.7% SL hit rate vs NY = 55.2%
 # TrendRider now requires London or NY session (blocks Tokyo-only for ALL pairs)
 FILTER_2_SESSION_QUALITY_ENABLED = True  # Set False to revert to old behavior
+
+# Phase 3.4 Trade Frequency Optimization: TrendRider Extended + Pivot Filter
+# Strategy: Extend TrendRider to CS≥30 (Transitional regime) + Pivot confluence filter
+# BreakoutRider: DISABLED (broken, 0-4 trades, losing)
+# PivotScalper: REVERTED (blocked TrendRider, wrong portfolio fit)
+BREAKOUT_BB_COMPRESSION_PERCENTILE = 20  # Not used (BreakoutRider disabled)
+
+# Pivot Level Filter for TrendRider (Optional quality enhancement)
+TRENDRIDER_PIVOT_FILTER_ENABLED = False   # TESTING: Disable to check trade frequency
+TRENDRIDER_PIVOT_ZONE_PIPS = 10.0        # Distance to pivot level (S1/S2/R1/R2/Pivot)
 
 # Partial exit regime thresholds (PRD §5.1)
 PARTIAL_EXIT_TIERS = [

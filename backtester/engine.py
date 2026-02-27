@@ -93,15 +93,19 @@ class BacktestEngine:
         # Load 4H/1H OHLC (optional — fallback if missing)
         self._ohlc_4h: dict[str, pd.DataFrame] = {}
         self._ohlc_1h: dict[str, pd.DataFrame] = {}
+        self._ohlc_m15: dict[str, pd.DataFrame] = {}  # Phase 3.4: For PivotScalper
         self._dcrd_available = True
         for pair in pairs:
             h4 = self._load_ohlc(pair, "4h")
             h1 = self._load_ohlc(pair, "1h")
+            m15 = self._load_ohlc(pair, "m15")
             if h4 is None or h1 is None:
                 self._dcrd_available = False
             else:
                 self._ohlc_4h[pair] = h4
                 self._ohlc_1h[pair] = h1
+            if m15 is not None:
+                self._ohlc_m15[pair] = m15
 
         if not self._dcrd_available:
             log.warning(
@@ -244,12 +248,14 @@ class BacktestEngine:
 
             ohlc_4h = self._get_ohlc_window(pair, "4h", end_time)
             ohlc_1h = self._get_ohlc_window(pair, "1h", end_time)
+            ohlc_m15 = self._get_ohlc_window(pair, "m15", end_time, n=500)  # Phase 3.4: PivotScalper
 
             signal = self._brain.process(
                 pair=pair,
                 range_bars=rb_window_df,
                 ohlc_4h=ohlc_4h,
                 ohlc_1h=ohlc_1h,
+                ohlc_m15=ohlc_m15,  # Phase 3.4: PivotScalper
                 composite_score=composite_score,
                 account_state=account.get_account_state(),
                 current_time=end_time,
@@ -565,9 +571,16 @@ class BacktestEngine:
         return df
 
     def _load_ohlc(self, pair: str, timeframe: str) -> Optional[pd.DataFrame]:
-        """Load 4H or 1H OHLC. Returns None if file not found."""
-        sub = "ohlc_4h" if timeframe == "4h" else "ohlc_1h"
-        suffix = "H4" if timeframe == "4h" else "H1"
+        """Load OHLC data (4H, 1H, or M15). Returns None if file not found."""
+        if timeframe == "4h":
+            sub, suffix = "ohlc_4h", "H4"
+        elif timeframe == "1h":
+            sub, suffix = "ohlc_1h", "H1"
+        elif timeframe == "m15":
+            sub, suffix = "ohlc", "M15"  # M15 data in ohlc/ directory
+        else:
+            return None
+
         path = self.data_dir / sub / f"{pair}_{suffix}.parquet"
         if not path.exists():
             return None
@@ -583,7 +596,15 @@ class BacktestEngine:
         n: int = 300,
     ) -> Optional[pd.DataFrame]:
         """Return last N OHLC bars ending at or before up_to_time (no lookahead)."""
-        cache = self._ohlc_4h if timeframe == "4h" else self._ohlc_1h
+        if timeframe == "4h":
+            cache = self._ohlc_4h
+        elif timeframe == "1h":
+            cache = self._ohlc_1h
+        elif timeframe == "m15":
+            cache = self._ohlc_m15
+        else:
+            return None
+
         df = cache.get(pair)
         if df is None or df.empty:
             return None

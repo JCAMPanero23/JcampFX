@@ -24,8 +24,15 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from src.config import PIP_SIZE, RANGE_BAR_PIPS, STRATEGY_TRENDRIDER_MIN_CS
+from src.config import (
+    PIP_SIZE,
+    RANGE_BAR_PIPS,
+    STRATEGY_TRENDRIDER_MIN_CS,
+    TRENDRIDER_PIVOT_FILTER_ENABLED,
+    TRENDRIDER_PIVOT_ZONE_PIPS,
+)
 from src.exit_manager import get_partial_exit_pct
+from src.pivot_levels import calculate_daily_pivots_from_4h, is_near_pivot_level
 from src.signal import Signal
 from src.strategies.base_strategy import BaseStrategy
 
@@ -232,7 +239,8 @@ class TrendRider(BaseStrategy):
         ohlc_1h: pd.DataFrame,
         composite_score: float,
         news_state: dict,
-        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum
+        dcrd_history: Optional[list[float]] = None,  #Phase 3.1.1
+        **kwargs,  # Accept optional params
     ) -> Optional[Signal]:
         """
         Return a Signal if a TrendRider setup is found, else None.
@@ -281,15 +289,18 @@ class TrendRider(BaseStrategy):
             if dcrd_momentum < 0:
                 return None
 
-        # Step 3: Confirm ADX > 25 AND rising (trend gaining strength, not exhausting)
+        # Step 3: Confirm ADX > 25 (Phase 3.4 Option C: removed "rising" requirement)
+        # ADX must be above threshold but no longer required to be rising
+        # This allows entries during stable trends (not just accelerating trends)
         adx = _adx_1h(ohlc_1h)
-        adx_rising = _adx_is_rising(ohlc_1h)
+        adx_rising = _adx_is_rising(ohlc_1h)  # Still calculated for signal metadata
         if adx <= _ADX_THRESHOLD:
             log.debug("TrendRider: ADX %.1f <= 25 -- no signal", adx)
             return None
-        if not adx_rising:
-            log.debug("TrendRider: ADX %.1f not rising -- declining momentum, skip", adx)
-            return None
+        # Option C: Allow ADX stable or rising (removed declining check)
+        # if not adx_rising:
+        #     log.debug("TrendRider: ADX %.1f not rising -- declining momentum, skip", adx)
+        #     return None
 
         # Step 4: Find pullback entry
         pair = news_state.get("pair", "UNKNOWN")
@@ -300,9 +311,23 @@ class TrendRider(BaseStrategy):
         entry, sl, tp_1r = setup
         timestamp = range_bars.iloc[-1]["end_time"] if "end_time" in range_bars.columns else pd.Timestamp.utcnow()
 
-        partial_pct = get_partial_exit_pct(composite_score)
-
         pip = PIP_SIZE.get(pair, 0.0001)
+
+        # Step 4.5: Pivot filter (Phase 3.4 - Quality enhancement)
+        if TRENDRIDER_PIVOT_FILTER_ENABLED:
+            pivots = calculate_daily_pivots_from_4h(ohlc_4h)
+            if not is_near_pivot_level(entry, pivots, TRENDRIDER_PIVOT_ZONE_PIPS, pip):
+                log.debug(
+                    "TrendRider %s: Entry %.5f not near any pivot level (±%.0f pips) — skip",
+                    pair, entry, TRENDRIDER_PIVOT_ZONE_PIPS
+                )
+                return None
+            log.info(
+                "TrendRider %s: Entry %.5f NEAR pivot level (confluence ✓)",
+                pair, entry
+            )
+
+        partial_pct = get_partial_exit_pct(composite_score)
 
         # NOTE: MIN_SL_PIPS check removed — fixed 60/75 pip SL always exceeds minimum
         pullback_bar_abs_idx = len(range_bars) - 2

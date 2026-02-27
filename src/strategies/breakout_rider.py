@@ -24,7 +24,11 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from src.config import STRATEGY_BREAKOUTRIDER_MIN_CS, STRATEGY_TRENDRIDER_MIN_CS
+from src.config import (
+    STRATEGY_BREAKOUTRIDER_MIN_CS,
+    STRATEGY_TRENDRIDER_MIN_CS,
+    BREAKOUT_BB_COMPRESSION_PERCENTILE,
+)
 from src.exit_manager import get_partial_exit_pct
 from src.signal import Signal
 from src.strategies.base_strategy import BaseStrategy
@@ -36,7 +40,7 @@ _BB_STD = 2.0
 _KC_PERIOD = 20
 _KC_MULT = 1.5    # Keltner Channel ATR multiplier
 _ATR_PERIOD = 14
-_BB_COMPRESSION_PERCENTILE = 20   # BB width in lowest 20th percentile
+_BB_COMPRESSION_PERCENTILE = BREAKOUT_BB_COMPRESSION_PERCENTILE  # Phase 3.4: Raised from 20 to 35
 _SPEED_LOOKBACK = 3               # bars to compare for speed increase
 
 
@@ -168,7 +172,8 @@ class BreakoutRider(BaseStrategy):
         ohlc_1h: pd.DataFrame,
         composite_score: float,
         news_state: dict,
-        dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum (not used yet)
+        dcrd_history: Optional[list[float]] = None,  #Phase 3.1.1
+        **kwargs,  # Accept optional params (not used yet)
     ) -> Optional[Signal]:
         """
         Return a Signal if a BreakoutRider setup is found, else None.

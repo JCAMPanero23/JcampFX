@@ -196,6 +196,7 @@ class BrainCore:
         pip_value_per_lot: Optional[float] = None,
         last_bar: Optional[pd.Series] = None,  # v2.2: for phantom detection
         dcrd_history: Optional[list[float]] = None,  # Phase 3.1.1: DCRD momentum tracking
+        ohlc_m15: Optional[pd.DataFrame] = None,  # Phase 3.4: PivotScalper M15 data
     ) -> Optional[Signal]:
         """
         Run all gates and route to the appropriate strategy.
@@ -307,6 +308,7 @@ class BrainCore:
         signal = active_strategy.analyze(
             range_bars, ohlc_4h, ohlc_1h, composite_score, news_state,
             dcrd_history=dcrd_history,  # Phase 3.1.1: DCRD momentum filter
+            ohlc_m15=ohlc_m15,  # Phase 3.4: PivotScalper
         )
         if signal is None:
             return None

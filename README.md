@@ -2,10 +2,10 @@
 
 > *"You are no longer running a trend EA. You are running a Regime-Adaptive Multi-Strategy Portfolio Engine."*
 
-[![Status](https://img.shields.io/badge/Status-Phase%201%20Development-blue)]()
-[![Platform](https://img.shields.io/badge/Platform-MetaTrader%205-blueviolet)]()
+[![Status](https://img.shields.io/badge/Status-Phase%204.1%20Complete-brightgreen)]()
+[![Platform](https://img.shields.io/badge/Platform-MT5%20%2B%20cTrader-blueviolet)]()
 [![Broker](https://img.shields.io/badge/Broker-FP%20Markets%20ECN-green)]()
-[![PRD](https://img.shields.io/badge/PRD-v2.1%20Analyst--Reviewed-orange)]()
+[![PRD](https://img.shields.io/badge/PRD-v2.2%20Production%20Ready-orange)]()
 
 ---
 
@@ -15,28 +15,34 @@ JcampFX replaces time-based candlestick analysis with **Range Bars** for noise-f
 
 The system routes signals to three independent strategy modules based on the current regime score, applies regime-aware partial exits at 1.5R, and trails the remaining runner with a dynamic Chandelier stop.
 
-**Start capital:** $500 USD | **Broker:** FP Markets ECN MT5 | **Pairs:** EURUSD, GBPUSD, USDJPY, AUDJPY, USDCHF
+**Start capital:** $500 USD | **Broker:** FP Markets ECN (MT5 + cTrader) | **Pairs:** EURUSD, USDJPY, AUDJPY, USDCHF (4-pair validated portfolio)
 
 ---
 
 ## Architecture
 
 ```
-MT5 (Tick + 4H/1H + Calendar)
+MT5 EA (MQL5) / cTrader cBot (C#)
         │
-        ├── Range Engine (Python)       → Range Bar conversion
-        └── DCRD Engine (Python)        → CompositeScore 0–100
+        ├── Tick Data Stream (ZMQ :5555)
+        │
+Python Brain (Platform-Agnostic)
+        │
+        ├── Range Engine                → Range Bar conversion
+        ├── DCRD Engine                 → CompositeScore 0–100
+        ├── News Layer (MT5 only)       → Event gating
+        ├── Strategy Router             → TrendRider / RangeRider
+        ├── Correlation Filter          → Max 2 trades per currency
+        └── Exit Manager                → Partial exit + Trailing SL
                         │
-                News Layer (MQL5 → ZMQ) → Event gating
+        Trading Signals (ZMQ :5556)
                         │
-                Brain Core (Python)     → Routes signals by CompositeScore
-                        │
-           Correlation Filter           → Max 2 trades per base/quote currency
-                        │
-               Exit Manager             → Partial exit at 1.5R + Dynamic Chandelier SL
-                        │
-             ZMQ Bridge (:5555)         → Hand EA (MQL5)
+MT5 EA (MQL5) / cTrader cBot (C#)
+        │
+        └── Order Execution
 ```
+
+**Phase 4.1 Status:** ✅ ZMQ bridge operational, tick flow validated (20+ mins stable)
 
 ---
 
@@ -153,13 +159,15 @@ JcampFX/
 
 ## Development Phases
 
-| Phase | Deliverable | Gate |
-|---|---|---|
-| **1** | Range Bar Engine + Plotly web chart + M15 overlay | Visual validation |
-| **2** | DCRD Brain + 3 strategies + Exit System + News layer | Unit tests + regime accuracy ≥85% |
-| **3** | Web Backtester — 2yr data, 4 walk-forward cycles (The Cinema) | Net profitable after slippage + commission |
-| **4** | ZMQ Bridge + Demo trading + all risk controls live | 1-week demo match ≥95% |
-| **5** | VPS deployment + Android dashboard + Telegram bot | Live execution |
+| Phase | Deliverable | Gate | Status |
+|---|---|---|---|
+| **1** | Range Bar Engine + Plotly web chart | Visual validation | ✅ Complete |
+| **2** | DCRD Brain + 3 strategies + Exit System | Unit tests | ✅ Complete |
+| **3** | Web Backtester (2yr validation) | Net profitable | ✅ Complete ($182 profit, 17.4% DD) |
+| **4.1** | cTrader ZMQ Bridge | Tick flow validated | ✅ Complete (20+ mins stable) |
+| **4.2** | Order Execution | Entry/exit/modify | 🎯 Next |
+| **4.3** | Demo Trading Validation | 1-week demo match | Pending |
+| **5** | VPS deployment + Android + Signal Service | Live execution | Pending |
 
 ---
 
@@ -169,13 +177,13 @@ JcampFX/
 |---|---|
 | Data | MetaTrader5 Python package, Dukascopy tick data, Parquet |
 | Range Engine | Python 3.11+ |
-| DCRD / Brain | Python (modular plugin architecture) |
-| News | MQL5 `CalendarValueHistory()` → ZMQ port 5557 |
+| DCRD / Brain | Python (modular plugin architecture, platform-agnostic) |
+| News | MQL5 `CalendarValueHistory()` → ZMQ port 5557 (MT5 only) |
 | Backtester | `backtesting.py` with custom Range Bar + DCRD timeline |
 | Dashboard | Plotly / Dash |
-| Signal Bridge | pyzmq (ports 5555/5556) |
-| Hand EA | MQL5 on MT5 |
-| Broker | FP Markets ECN — $7/lot commission |
+| Signal Bridge | pyzmq (Python) + NetMQ (C# for cTrader) |
+| Execution Layer | MT5: MQL5 EA \| cTrader: C# cBot ✅ |
+| Broker | FP Markets ECN (MT5 + cTrader) — $7/lot commission |
 
 ---
 

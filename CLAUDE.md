@@ -2,9 +2,10 @@
 
 ## Current Status 🎯
 
-**Phase:** 4 (ZMQ Bridge + Demo Trading)
-**Last Completed:** Phase 3.6 — ALL PHASE 3 VALIDATION GATES PASSED ✅
-**Next Session:** Implement ZMQ bridge between MT5 EA and Python Brain
+**Phase:** 4.1 Complete — cTrader ZMQ Bridge Operational ✅
+**Last Completed:** Phase 4.1 — cTrader cBot working, tick flow validated 20+ mins
+**Next Session:** Phase 4.2 — Add order execution (entry/exit/modify) to cBot
+**Platform:** Dual support (MT5 + cTrader)
 
 **Production Portfolio (Validated):**
 - **Pairs:** EURUSD, USDJPY, AUDJPY, USDCHF (4 pairs)
@@ -14,7 +15,7 @@
 - **2-Year Backtest:** $182.74 profit (36.5% return), 17.4% DD, Sharpe 1.30
 
 ## Project Overview
-Regime-Adaptive Multi-Strategy Portfolio Engine built on Dynamic Composite Regime Detection (DCRD) with Range Bar Intelligence. Targets a $500 FP Markets ECN MT5 account.
+Regime-Adaptive Multi-Strategy Portfolio Engine built on Dynamic Composite Regime Detection (DCRD) with Range Bar Intelligence. Targets a $500 FP Markets ECN account with dual platform support (MT5 + cTrader).
 
 **References:**
 - `JcampFX_PRD_v2.2.md` — Single source of truth for all system requirements
@@ -34,13 +35,50 @@ D:\JcampFX\
 │   ├── Experts\                   # MQL5 Expert Advisors (symlinked from MT5)
 │   └── Include\
 │       └── JcampStrategies\       # MQL5 include files (symlinked from MT5)
+├── cTrader_cBot\                  # cTrader cBot (C#) — Phase 4.1 ✅
+│   ├── JcampFX_Brain_SIMPLE.cs    # Main cBot (working version)
+│   ├── ZMQBridge.cs               # NetMQ socket wrapper
+│   ├── MessageTypes.cs            # JSON DTOs
+│   ├── install_netmq.bat          # Automated NuGet installer
+│   └── README.md                  # Installation guide
 ├── src\                           # Python Brain (DCRD, strategies, exit manager)
 ├── backtester\                    # Phase 3 backtesting engine
-├── data\                          # Tick data + Range Bar cache (Parquet)
+├── data\                          # Tick data + Range Bar cache (Parquet — gitignored)
 └── dashboard\                     # Plotly/Dash web chart + Cinema
 ```
 
-## MT5 File Management
+## Git Repository Management
+
+**Current Branch:** `main` (clean history as of 2026-03-07)
+
+**Important Note:** The repository was reorganized during Phase 4.1 to resolve git push timeout issues (HTTP 408 errors). The old `main` branch had 8.1GB of git history due to large tick data files in past commits. We created an orphan branch `ctrader-clean` with no history, then replaced `main` with this clean branch.
+
+**Branch Structure:**
+- `main` — Clean history (current work, 265 files, no large data)
+- `main-backup` — Old main branch (preserved locally, has full Phase 3 history)
+- `feature/*` — Feature branches (unaffected by reorganization)
+
+**What Was Preserved:**
+- ✅ All source code files
+- ✅ All documentation
+- ✅ All Phase 3 backtest results (in baseline_4pair/)
+- ✅ cTrader Phase 4.1 implementation
+
+**What Was Removed from Git:**
+- ❌ Large tick data files (data/**/*.parquet now gitignored)
+- ❌ Old backtest result parquet files (18GB+ in git history)
+
+**Data Backup:** Large data files backed up to Google Drive (not in git)
+
+**Benefits:**
+- Fast git operations (clone/push/pull)
+- No more HTTP 408 timeout errors
+- Clean history going forward
+- Old history preserved in `main-backup` (local)
+
+## Platform File Management
+
+### MT5 File Management
 EA files are copied directly from `D:\JcampFX\MT5_EAs\Experts\` to MT5 Terminal.
 
 **MT5 Terminal Path:** `C:\Users\Jcamp_Laptop\AppData\Roaming\MetaQuotes\Terminal\D0E8209F77C8CF37AD8BF550E51FF075\MQL5\`
@@ -50,6 +88,19 @@ EA files are copied directly from `D:\JcampFX\MT5_EAs\Experts\` to MT5 Terminal.
 # Copy updated EA to MT5
 cp "D:/JcampFX/MT5_EAs/Experts/JcampFX_Brain.mq5" "C:/Users/Jcamp_Laptop/AppData/Roaming/MetaQuotes/Terminal/D0E8209F77C8CF37AD8BF550E51FF075/MQL5/Experts/JcampFX_Brain.mq5"
 ```
+
+### cTrader cBot Management ✅
+cBot files are in `D:\JcampFX\cTrader_cBot\` and imported via cTrader Automate.
+
+**Installation:**
+1. Open cTrader → Automate → New cBot
+2. Paste combined C# code from `JcampFX_Brain_COMBINED.cs`
+3. Add NetMQ reference via Manage References
+4. Build and run on chart
+
+**NuGet Packages:**
+- NetMQ (pure .NET ZMQ implementation)
+- AsyncIO (required for NetMQ)
 
 ## Architecture Summary
 
@@ -76,10 +127,12 @@ cp "D:/JcampFX/MT5_EAs/Experts/JcampFX_Brain.mq5" "C:/Users/Jcamp_Laptop/AppData
 - **Price Level Cooldown:** ±20 pips, 4-hour window (prevents revenge trading)
 
 **Infrastructure:**
-- **News:** MQL5 CalendarValueHistory() → ZMQ port 5557 → Brain gating
+- **Platforms:** MT5 EA (MQL5) + cTrader cBot (C#) — Python Brain is platform-agnostic
+- **News:** MQL5 CalendarValueHistory() → ZMQ port 5557 → Brain gating (MT5 only, cTrader deferred)
 - **Session Filter:** Per-strategy hard/soft filters (Tokyo/London/NY/Overlap/Off-Hours)
 - **Phantom Detection:** `is_phantom` + `is_gap_adjacent` flags; no entries on phantom bars
 - **Bridge:** ZMQ tcp://localhost:5555 (signals) / 5556 (reports) / 5557 (news)
+- **Symbol Handling:** Python uses canonical names (EURUSD), EA/cBot handles broker suffixes
 
 ## Key Rules (never violate)
 
@@ -287,12 +340,22 @@ for trade in account.open_trades:
 | 3.6 | Portfolio optimization | COMPLETE | Final validation | ✅ **$182 profit, 17.4% DD** |
 | 3.3 | Walk-forward validation | COMPLETE | 4/4 cycles profitable | ✅ Robustness confirmed |
 | 3.4 | Monte Carlo simulation | COMPLETE | Risk assessment | ✅ 100% profitable (10k runs) |
-| **4** | **ZMQ Bridge + Demo Trading** | **NEXT** | **1-week demo match** | **🎯 Ready to start** |
+| **4.1** | **cTrader ZMQ Bridge** | **COMPLETE** | **Tick flow validated** | **✅ 20+ mins stable** |
+| **4.2** | **Order Execution** | **NEXT** | **Entry/exit/modify** | **🎯 Ready to start** |
+| 4.3 | Demo Trading Validation | PENDING | 1-week demo match | — |
 | 5 | VPS + Android + Signal Service | PENDING | Live execution | — |
 
-**Phase 4 Objectives:**
-1. Build ZMQ bridge between MT5 EA and Python Brain
-2. Real-time Range Bar processing + DCRD calculation
+**Phase 4.1 Achievements:**
+1. ✅ cTrader cBot created (C# with NetMQ)
+2. ✅ ZMQ bridge operational (tick flow validated 20+ minutes)
+3. ✅ Python Brain platform-agnostic (canonical symbols)
+4. ✅ Test signal generator (decouple from bar close)
+5. ✅ Clean git history (orphan branch, 8.1GB → lightweight)
+6. ✅ Automated NuGet installers + documentation
+
+**Phase 4.2 Objectives:**
+1. Add order execution to cTrader cBot (entry/exit/modify)
+2. Test signal generator validation (15s full cycle)
 3. News gating via CalendarValueHistory() → ZMQ
 4. Demo trading validation (match backtest behavior within tolerance)
 5. 1-week live validation before moving to Phase 5
@@ -378,6 +441,10 @@ MT5 EA (MQL5)                    Python Brain (src/)
 ---
 
 ## Tech Stack
-- Python 3.11+, MetaTrader5 package, backtesting.py, Plotly/Dash, pyzmq
-- MQL5 (Hand EA), Parquet (tick storage), FP Markets ECN MT5
-- Broker commission: $7/lot round-trip | Slippage model: 1.0 pip organic / tick boundary on phantom bars
+- **Python:** 3.11+, MetaTrader5 package, backtesting.py, Plotly/Dash, pyzmq
+- **Execution Layer:**
+  - MT5: MQL5 (JcampFX_Brain.mq5) + pyzmq
+  - cTrader: C# (JcampFX_Brain_SIMPLE.cs) + NetMQ ✅
+- **Data:** Parquet (tick storage), Dukascopy tick data
+- **Broker:** FP Markets ECN (MT5 + cTrader support)
+- **Commission:** $7/lot round-trip | Slippage model: 1.0 pip organic / tick boundary on phantom bars

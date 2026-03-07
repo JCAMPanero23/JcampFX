@@ -1,0 +1,27 @@
+{
+  "adx": {
+    "p25": 21.88180191019882,
+    "p75": 36.20090451481054
+  },
+  "atr_ratio": {
+    "p25": 0.8966825247262048,
+    "p75": 1.0897837697678723
+  },
+  "rb_speed": {
+    "p25": 1.0,
+    "p75": 5.0
+  },
+  "bb_width": {
+    "p20": 0.003767183566891919,
+    "p80": 0.010442661458486609
+  },
+  "adx_slope_threshold": 0.2,
+  "csm_widen_pct": 10.0,
+  "csm_narrow_pct": 30.0,
+  "calibration_date": "2026-02-28",
+  "dataset_range": "up to 2025-11-28 (excluding 3-month holdout)",
+  "pairs": [
+    "GBPJPY"
+  ],
+  "version": "2.2"
+}

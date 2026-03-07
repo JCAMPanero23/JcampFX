@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Data (large tick files — store separately or use Git LFS)
+data/**/*.parquet
+data/*.parquet
+data/*.csv
+data/*.zip
+data/raw/
+data/ticks_dukascopy/  # Dukascopy historical downloads (too large for git)
+
+# MT5 compiled files (source in repo, not binaries)
+MT5_EAs/**/*.ex5
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Secrets / config with credentials
+config/secrets.ini
+*.env
+.env.*
+
+# Backtester cache
+backtester/cache/
+backtester/results/*.pkl
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Config overrides (temporary test settings)
+config_overrides.json
+config_defaults_backup.json
+
+# ZMQ library (has Windows reserved filenames)
+mql-zmq-master/
+
+# Dukascopy tick data
+data/ticks_dukascopy/
+
+# cTrader NuGet packages (download via install_netmq scripts - not in git due to size)
+cTrader_cBot/packages/
+cTrader_cBot/nuget.exe
